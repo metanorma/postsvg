@@ -1,0 +1,369 @@
+= PostScript to SVG Mapping
+
+== General
+
+This document describes how Postsvg converts PostScript graphics concepts to
+Scalable Vector Graphics (SVG) format. Understanding these mappings helps you
+predict the SVG output and work effectively with both formats.
+
+== Coordinate System Conversion
+
+=== General
+
+PostScript and SVG use different coordinate system orientations:
+
+PostScript:: Origin at bottom-left, Y-axis increases upward
+SVG:: Origin at top-left, Y-axis increases downward
+
+=== Y-axis inversion
+
+[source]
+----
+PostScript:              SVG:
+   (0,h) ┌───┐ (w,h)      (0,0) ┌───┐ (w,0)
+         │   │                  │   │
+   (0,0) └───┘ (w,0)      (0,h) └───┘ (w,h)
+----
+
+Postsvg handles this conversion automatically by transforming coordinates
+during the conversion process.
+
+=== BoundingBox to viewBox
+
+[example]
+====
+PostScript `%%BoundingBox` comment:
+[source,postscript]
+----
+%%BoundingBox: 0 0 200 150
+----
+
+Maps to SVG `viewBox` attribute:
+[source,xml]
+----
+<svg viewBox="0 0 200 150" width="200" height="150">
+----
+
+The bounding box defines the canvas dimensions in both formats.
+====
+
+== Path Data Conversion
+
+=== General
+
+PostScript path construction operators map to SVG path data commands.
+
+=== Path operator mapping
+
+[cols="2,2,3",options="header"]
+|===
+|PostScript |SVG Command |Example
+
+|`newpath`
+|_Implicit_
+|Start new path
+
+|`x y moveto`
+|`M x y`
+|`50 50 moveto` → `M 50 50`
+
+|`x y lineto`
+|`L x y`
+|`100 100 lineto` → `L 100 100`
+
+|`x1 y1 x2 y2 x3 y3 curveto`
+|`C x1 y1 x2 y2 x3 y3`
+|Cubic Bézier curve
+
+|`closepath`
+|`Z`
+|Close current subpath
+|===
+
+=== Path conversion example
+
+[example]
+====
+PostScript path:
+[source,postscript]
+----
+newpath
+10 10 moveto
+90 10 lineto
+90 90 lineto
+10 90 lineto
+closepath
+----
+
+Converts to SVG path `d` attribute:
+[source]
+----
+d="M 10 10 L 90 10 L 90 90 L 10 90 Z"
+----
+====
+
+== Color Mapping
+
+=== General
+
+PostScript color operators map to SVG fill and stroke attributes.
+
+=== RGB color conversion
+
+[example]
+====
+PostScript:
+[source,postscript]
+----
+0.5 0.2 0.8 setrgbcolor   % RGB values 0.0-1.0
+----
+
+SVG (hexadecimal):
+[source,xml]
+----
+fill="#7f33cc"
+----
+
+Conversion: Multiply each component by 255, convert to hex.
+
+* Red: 0.5 × 255 = 127 = 0x7F
+* Green: 0.2 × 255 = 51 = 0x33
+* Blue: 0.8 × 255 = 204 = 0xCC
+====
+
+=== Grayscale conversion
+
+[example]
+====
+PostScript:
+[source,postscript]
+----
+0.5 setgray                % 50% gray
+----
+
+SVG:
+[source,xml]
+----
+fill="#7f7f7f"
+----
+
+Same value for R, G, and B components.
+====
+
+=== Fill vs stroke color
+
+PostScript uses the same color for both fill and stroke operations. SVG
+distinguishes between `fill` and `stroke` attributes.
+
+[example]
+====
+PostScript fill:
+[source,postscript]
+----
+1 0 0 setrgbcolor
+fill
+----
+
+SVG:
+[source,xml]
+----
+<path d="..." fill="#ff0000" stroke="none"/>
+----
+
+PostScript stroke:
+[source,postscript]
+----
+0 0 1 setrgbcolor
+stroke
+----
+
+SVG:
+[source,xml]
+----
+<path d="..." fill="none" stroke="#0000ff"/>
+----
+====
+
+== Graphics State Mapping
+
+=== Line width
+
+[example]
+====
+PostScript:
+[source,postscript]
+----
+3 setlinewidth
+----
+
+SVG:
+[source,xml]
+----
+stroke-width="3"
+----
+====
+
+=== Line cap styles
+
+[cols="2,2,2",options="header"]
+|===
+|PostScript |Value |SVG
+
+|`0 setlinecap`
+|Butt
+|`stroke-linecap="butt"`
+
+|`1 setlinecap`
+|Round
+|`stroke-linecap="round"`
+
+|`2 setlinecap`
+|Square
+|`stroke-linecap="square"`
+|===
+
+=== Line join styles
+
+[cols="2,2,2",options="header"]
+|===
+|PostScript |Value |SVG
+
+|`0 setlinejoin`
+|Miter
+|`stroke-linejoin="miter"`
+
+|`1 setlinejoin`
+|Round
+|`stroke-linejoin="round"`
+
+|`2 setlinejoin`
+|Bevel
+|`stroke-linejoin="bevel"`
+|===
+
+== Transformation Matrix
+
+=== General
+
+PostScript's Current Transformation Matrix (CTM) maps to SVG's `transform`
+attribute.
+
+=== Matrix format
+
+PostScript CTM: `[a b c d e f]`
+
+SVG transform: `matrix(a b c d e f)`
+
+[example]
+====
+PostScript:
+[source,postscript]
+----
+100 50 translate           % Move origin
+45 rotate                  % Rotate 45°
+2 2 scale                  % Scale 2×
+----
+
+SVG (combined):
+[source,xml]
+----
+transform="translate(100 50) rotate(45) scale(2 2)"
+----
+
+Or as single matrix:
+[source,xml]
+----
+transform="matrix(...)"
+----
+====
+
+=== Individual transformations
+
+[cols="2,3",options="header"]
+|===
+|PostScript |SVG
+
+|`tx ty translate`
+|`transform="translate(tx ty)"`
+
+|`sx sy scale`
+|`transform="scale(sx sy)"`
+
+|`angle rotate`
+|`transform="rotate(angle)"`
+|===
+
+== Complete Conversion Example
+
+=== PostScript input
+
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 200 200
+
+newpath
+50 50 moveto
+150 50 lineto
+150 150 lineto
+50 150 lineto
+closepath
+0.8 0.2 0.2 setrgbcolor
+fill
+
+newpath
+100 100 40 0 360 arc
+0 0 0 setrgbcolor
+2 setlinewidth
+stroke
+----
+
+=== SVG output
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="200" height="200"
+     viewBox="0 0 200 200">
+  <!-- Red square -->
+  <path d="M 50 50 L 150 50 L 150 150 L 50 150 Z"
+        fill="#cc3333" stroke="none"/>
+
+  <!-- Black circle outline -->
+  <path d="M 140 100 A 40 40 0 1 0 60 100 A 40 40 0 1 0 140 100"
+        fill="none" stroke="#000000" stroke-width="2"/>
+</svg>
+----
+
+== Implementation-Specific Behavior
+
+=== Coordinate precision
+
+Postsvg uses floating-point numbers with standard precision. Coordinates in
+SVG output are typically formatted to one decimal place.
+
+=== Path optimization
+
+Postsvg may optimize consecutive `lineto` operations and remove redundant
+`moveto` commands.
+
+=== Unsupported features
+
+Features not yet supported by Postsvg:
+
+* Text rendering (`show`, font operators)
+* Image embedding
+* Patterns and gradients
+* Clipping paths (partial support)
+* Dash patterns (not yet implemented)
+
+For files using these features, the corresponding PostScript operators are
+ignored or produce warnings.
+
+== See Also
+
+* link:fundamentals.adoc[PostScript Fundamentals]
+* link:graphics-model.adoc[Graphics Model]
+* link:implementation-notes.adoc[Implementation Notes]
+* link:index.adoc[Back to PostScript Quick Reference]

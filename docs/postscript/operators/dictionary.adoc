@@ -1,0 +1,191 @@
+= Dictionary Operators
+
+== General
+
+Dictionary operators manage PostScript dictionaries, which are associative
+arrays that map keys to values. Dictionaries implement variable storage and
+scoping in PostScript.
+
+[[def]]
+== def
+
+=== General
+
+The `def` operator defines a key-value pair in the current dictionary (the
+topmost dictionary on the dictionary stack).
+
+=== Syntax
+
+[source,postscript]
+----
+key value def <1> <2> <3>
+----
+<1> Key (typically a literal name)
+<2> Value (any PostScript object)
+<3> Operator that stores the association
+
+Where,
+
+`key`:: Key for the entry (typically a name)
+`value`:: Value to associate with the key
+
+Stack effect: `key value -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+/x 100 def             % Define x = 100
+/mycolor [1 0 0] def   % Define color array
+----
+
+Creates variables in the current dictionary.
+====
+
+[[dict]]
+== dict
+
+=== General
+
+The `dict` operator creates a new dictionary with space for n key-value pairs.
+
+=== Syntax
+
+[source,postscript]
+----
+int dict <1> <2>
+----
+<1> Initial capacity (number of entries)
+<2> Operator that creates dictionary
+
+Where,
+
+`int`:: Initial capacity (integer)
+
+Stack effect: `int -- dict`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+20 dict                % Create dictionary for 20 entries
+----
+
+The dictionary grows automatically if needed.
+====
+
+[[begin]]
+== begin
+
+=== General
+
+The `begin` operator pushes a dictionary onto the dictionary stack, making it
+the current dictionary for name lookups and `def` operations.
+
+=== Syntax
+
+[source,postscript]
+----
+dict begin <1> <2>
+----
+<1> Dictionary to activate
+<2> Operator that pushes dictionary
+
+Where,
+
+`dict`:: Dictionary to make current
+
+Stack effect: `dict -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+10 dict begin          % Create and activate new scope
+  /x 5 def             % Define in local dictionary
+  /y 10 def
+  x y add              % Use local variables
+end                    % Exit scope
+----
+
+Creates a local variable scope.
+====
+
+[[end]]
+== end
+
+=== General
+
+The `end` operator pops the topmost dictionary from the dictionary stack,
+ending the current scope.
+
+=== Syntax
+
+[source,postscript]
+----
+end <1>
+----
+<1> Operator that pops dictionary
+
+Stack effect: `-- `
+
+=== Examples
+
+See `begin` example above.
+
+== Dictionary Usage Patterns
+
+=== Local variables
+
+[example]
+====
+[source,postscript]
+----
+% Define a procedure with local variables
+/myproc {
+  10 dict begin        % Local scope
+    /a exch def        % Store parameters
+    /b exch def
+    a b add            % Use locals
+  end                  % Clean up scope
+} def
+
+% Call with arguments
+5 3 myproc             % Returns 8
+----
+
+Procedures often use local dictionaries for parameters.
+====
+
+=== Configuration dictionaries
+
+[example]
+====
+[source,postscript]
+----
+% Create configuration
+/config 5 dict def
+config begin
+  /width 100 def
+  /height 200 def
+  /color [1 0 0] def
+end
+
+% Use configuration
+config /width get      % Retrieve width
+----
+
+Dictionaries as data structures.
+====
+
+== See Also
+
+* link:../fundamentals.adoc#dictionaries-and-scopes[Dictionaries and Scopes]
+* link:control-flow.adoc[Control Flow]
+* link:index.adoc[Back to Operator Reference]

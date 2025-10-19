@@ -1,0 +1,473 @@
+= Postsvg
+
+image:https://img.shields.io/gem/v/postsvg.svg[Gem Version,
+link=https://rubygems.org/gems/postsvg]
+image:https://github.com/metanorma/postsvg/actions/workflows/test.yml/badge.svg[Build Status,
+link=https://github.com/metanorma/postsvg/actions/workflows/test.yml]
+image:https://img.shields.io/github/license/metanorma/postsvg.svg[License]
+
+== Purpose
+
+Postsvg is a pure Ruby library for converting PostScript (PS) and
+Encapsulated PostScript (EPS) files to Scalable Vector Graphics (SVG)
+format.
+
+Unlike traditional approaches that rely on external tools like
+Ghostscript or Inkscape, Postsvg provides a native Ruby implementation
+using Parslet for parsing PostScript commands and generating clean,
+standards-compliant SVG output.
+
+This library is particularly useful for applications that need to:
+
+* Convert legacy PostScript graphics to modern SVG format
+* Process vector graphics without external dependencies
+* Generate SVG from PostScript programmatically
+* Work with EPS files in pure Ruby environments
+
+== Features
+
+* <<basic-conversion,Basic PostScript to SVG conversion>> - Ruby API
+  for converting PS/EPS content to SVG
+* <<cli,Command-line interface>> - Thor-based CLI for file and batch
+  conversions
+* <<postscript-language,PostScript language support>> - Comprehensive
+  documentation and implementation
+* <<architecture,Pure Ruby architecture>> - No external dependencies,
+  Parslet-based parser
+
+== Architecture
+
+[[architecture]]
+
+=== General
+
+Postsvg uses a three-stage architecture for converting PostScript to
+SVG. This design follows separation of concerns principles, with each
+component handling a specific responsibility in the conversion process.
+
+.PostScript to SVG conversion pipeline
+[source]
+----
+┌─────────────┐      ┌───────────┐      ┌──────────────┐
+│ PostScript  │──>   │  Parser   │──>   │  Converter   │
+│   Input     │      │ (Parslet) │      │ (Interpreter)│
+└─────────────┘      └───────────┘      └───────┬──────┘
+                                                │
+                                                ▼
+                                       ┌─────────────────┐
+                                       │ SVG Generator   │
+                                       └────────┬────────┘
+                                                │
+                                                ▼
+                                       ┌─────────────────┐
+                                       │   SVG Output    │
+                                       └─────────────────┘
+----
+
+=== Parser stage
+
+The parser uses Parslet to tokenize and parse PostScript commands into
+an abstract syntax tree (AST). The parser handles PostScript syntax
+including numbers, operators, names, strings, arrays, and procedures.
+
+* `Postsvg::Parser::PostscriptParser` - Parslet grammar for PostScript
+  syntax
+* `Postsvg::Parser::Transform` - Transforms AST into Ruby data
+  structures
+
+=== Converter stage
+
+The converter interprets PostScript commands using a stack-based
+execution model. It maintains an operand stack, dictionary, and graphics
+state while executing PostScript operators.
+
+* `Postsvg::Converter` - Main orchestrator that executes PostScript
+  commands
+* `Postsvg::GraphicsState` - Manages current path, colors,
+  transformations, and graphics state stack
+
+=== Generator stage
+
+The generator creates SVG output from the interpreted graphics
+operations, handling coordinate system transformations and generating
+standards-compliant SVG markup.
+
+* `Postsvg::SvgGenerator` - Builds SVG document with proper structure
+  and viewBox
+
+== Installation
+
+Add this line to your application's Gemfile:
+
+[source,ruby]
+----
+gem "postsvg"
+----
+
+And then execute:
+
+[source,sh]
+----
+bundle install
+----
+
+Or install it yourself as:
+
+[source,sh]
+----
+gem install postsvg
+----
+
+== Basic PostScript to SVG conversion
+
+[[basic-conversion]]
+
+=== General
+
+The Postsvg library provides a simple Ruby API for converting PostScript
+content to SVG format. The conversion can be performed on in-memory
+content or directly on files.
+
+The library automatically handles BoundingBox extraction, coordinate
+system transformations, and SVG generation while preserving the visual
+appearance of the original PostScript graphics.
+
+=== Converting PostScript content
+
+Syntax:
+
+[source,ruby]
+----
+svg_output = Postsvg.convert(ps_content) <1>
+----
+<1> Convert PostScript string to SVG string
+
+Where,
+
+`ps_content`:: PostScript or EPS content as a string. Should include
+proper PostScript header and BoundingBox comment for best results.
+
+Returns:: SVG markup as a string
+
+.Converting PostScript content to SVG
+[example]
+====
+[source,ruby]
+----
+require "postsvg"
+
+ps_content = <<~PS
+  %!PS-Adobe-3.0 EPSF-3.0
+  %%BoundingBox: 0 0 100 100
+  newpath
+  10 10 moveto
+  90 10 lineto
+  90 90 lineto
+  10 90 lineto
+  closepath
+  0.5 0.5 0.5 setrgbcolor
+  fill
+PS
+
+svg = Postsvg.convert(ps_content)
+File.write("output.svg", svg)
+----
+
+This converts a PostScript square with gray fill to SVG format and saves
+it to a file.
+====
+
+=== Converting PostScript files
+
+Syntax:
+
+[source,ruby]
+----
+Postsvg.convert_file(input_path, output_path) <1>
+svg_content = Postsvg.convert_file(input_path) <2>
+----
+<1> Convert file and save to output path
+<2> Convert file and return SVG content without saving
+
+Where,
+
+`input_path`:: Path to input PostScript (.ps) or EPS (.eps) file
+`output_path`:: (Optional) Path where SVG file should be saved. If
+omitted, SVG content is returned without saving.
+
+Returns:: When `output_path` is omitted, returns SVG markup as a string.
+When `output_path` is provided, returns the output path.
+
+.Converting a PostScript file to SVG
+[example]
+====
+[source,ruby]
+----
+require "postsvg"
+
+# Convert and save in one step
+Postsvg.convert_file("input.eps", "output.svg")
+
+# Or get SVG content without saving
+svg_content = Postsvg.convert_file("input.ps")
+puts svg_content
+----
+
+The first example converts an EPS file and saves the result as SVG. The
+second example reads a PostScript file and returns the SVG content for
+further processing.
+====
+
+== Command-line interface
+
+[[cli]]
+
+=== General
+
+Postsvg provides a Thor-based command-line interface for converting
+PostScript and EPS files to SVG format. The CLI supports single file
+conversion, batch processing, and version information.
+
+The CLI is available through the `postsvg` executable installed with the
+gem.
+
+=== Converting single files
+
+Syntax:
+
+[source,sh]
+----
+postsvg convert INPUT_FILE [OUTPUT_FILE] <1>
+----
+<1> Convert INPUT_FILE to SVG, optionally saving to OUTPUT_FILE
+
+Where,
+
+`INPUT_FILE`:: Path to input PostScript (.ps) or EPS (.eps) file
+`OUTPUT_FILE`:: (Optional) Path where SVG file should be saved. If
+omitted, SVG is written to stdout.
+
+.Converting a single PostScript file
+[example]
+====
+[source,sh]
+----
+# Convert to stdout
+postsvg convert input.ps
+
+# Convert and save to file
+postsvg convert input.eps output.svg
+
+# Redirect stdout to file
+postsvg convert input.ps > output.svg
+----
+
+The first command prints SVG to stdout. The second saves directly to
+output.svg. The third uses shell redirection to save the output.
+====
+
+=== Batch conversion
+
+Syntax:
+
+[source,sh]
+----
+postsvg batch INPUT_DIR [OUTPUT_DIR] <1>
+----
+<1> Convert all PS/EPS files in INPUT_DIR, optionally saving to
+OUTPUT_DIR
+
+Where,
+
+`INPUT_DIR`:: Directory containing PostScript (.ps) and/or EPS (.eps)
+files to convert
+`OUTPUT_DIR`:: (Optional) Directory where SVG files should be saved. If
+omitted, SVG files are saved in the same directory as input files with
+.svg extension.
+
+.Batch converting PostScript files
+[example]
+====
+[source,sh]
+----
+# Convert all PS/EPS files in a directory
+postsvg batch ps_files/
+
+# Convert to a different directory
+postsvg batch ps_files/ svg_files/
+----
+
+The first example converts all PS and EPS files in the `ps_files/`
+directory, saving the SVG files in the same directory. The second
+example saves the converted files to the `svg_files/` directory.
+====
+
+=== Displaying version information
+
+Syntax:
+
+[source,sh]
+----
+postsvg version <1>
+----
+<1> Display the Postsvg version number
+
+.Getting version information
+[example]
+====
+[source,sh]
+----
+postsvg version
+----
+
+Output:
+----
+postsvg version 0.1.0
+----
+====
+
+== PostScript language support
+
+[[postscript-language]]
+
+=== General
+
+Postsvg provides comprehensive PostScript language support with detailed
+documentation covering fundamentals, operators, and conversion
+strategies.
+
+The implementation supports common PostScript operations including path
+construction, painting, color management, graphics state, and coordinate
+transformations.
+
+=== PostScript documentation
+
+Complete PostScript language documentation is available at
+link:docs/POSTSCRIPT.adoc[docs/POSTSCRIPT.adoc], organized into the
+following topics:
+
+* link:docs/postscript/fundamentals.adoc[Fundamentals] - PostScript
+  language basics, syntax, and data types
+* link:docs/postscript/graphics-model.adoc[Graphics model] - Coordinate
+  systems, paths, and painting model
+* link:docs/postscript/operators/index.adoc[Operators reference] -
+  Detailed documentation for all supported operators:
+** link:docs/postscript/operators/path-construction.adoc[Path
+   construction] - moveto, lineto, curveto, closepath, newpath
+** link:docs/postscript/operators/painting.adoc[Painting] - stroke,
+   fill
+** link:docs/postscript/operators/graphics-state.adoc[Graphics state] -
+   gsave, grestore, setlinewidth
+** link:docs/postscript/operators/transformations.adoc[Transformations]
+   - translate, scale, rotate
+** link:docs/postscript/operators/stack-manipulation.adoc[Stack
+   manipulation] - dup, pop, exch, roll
+** link:docs/postscript/operators/arithmetic.adoc[Arithmetic] - add,
+   sub, mul, div
+** link:docs/postscript/operators/control-flow.adoc[Control flow] - if,
+   ifelse, for, repeat
+** link:docs/postscript/operators/dictionary.adoc[Dictionary] - def,
+   dict, begin, end
+* link:docs/postscript/svg-mapping.adoc[SVG mapping guide] - How
+  PostScript operations map to SVG
+* link:docs/postscript/implementation-notes.adoc[Implementation notes] -
+  Postsvg-specific details and design decisions
+
+=== Supported PostScript operations
+
+==== Path construction
+
+* `moveto` - Begin new subpath at coordinates
+* `lineto` - Append straight line segment
+* `rlineto` - Append relative line segment
+* `curveto` - Append cubic Bézier curve
+* `closepath` - Close current subpath
+* `newpath` - Initialize new path
+
+==== Painting
+
+* `stroke` - Stroke current path with current color and line width
+* `fill` - Fill current path with current color
+
+==== Color
+
+* `setrgbcolor` - Set RGB color (0-1 range for each component)
+* `setgray` - Set grayscale color (0-1 range)
+
+==== Graphics state
+
+* `gsave` - Save current graphics state to stack
+* `grestore` - Restore graphics state from stack
+* `setlinewidth` - Set line width for stroke operations
+
+==== Transformations
+
+* `translate` - Translate coordinate system
+* `scale` - Scale coordinate system
+* `rotate` - Rotate coordinate system (angle in degrees)
+
+== Limitations
+
+Current version has the following limitations:
+
+* Text rendering: Text operations (show, findfont, setfont, etc.) are
+  not yet supported. Convert text to outlines before processing.
+* Complex clipping: Clipping paths (clip, eoclip) are not fully
+  implemented
+* Gradients and patterns: Pattern fills and gradient operations are not
+  yet supported
+* CMYK colors: Only RGB and grayscale colors are supported. CMYK color
+  operations will need conversion.
+* Image embedding: Raster images within PostScript (image, imagemask)
+  are not supported
+* Advanced operators: Some PostScript Level 2 and 3 operators are not
+  yet implemented
+
+For files with these features, consider preprocessing with external
+tools or contributing implementations of these features.
+
+== Acknowledgments
+
+This project uses test fixtures from
+https://github.com/elalish/ps2svg[ps2svg] by Emmett Lalish, licensed
+under the MIT License. These test files help ensure the correctness of
+our SVG generation against a reference implementation. We are grateful
+for this valuable resource that helps validate PostScript to SVG
+conversion.
+
+== Development
+
+=== Running tests
+
+[source,sh]
+----
+bundle exec rspec
+----
+
+=== Code style
+
+[source,sh]
+----
+bundle exec rubocop
+----
+
+=== Running all checks
+
+[source,sh]
+----
+bundle exec rake
+----
+
+== Contributing
+
+Bug reports and pull requests are welcome on GitHub at
+https://github.com/metanorma/postsvg.
+
+== Copyright
+
+Copyright Ribose.
+
+== License
+
+The gem is available as open source under the terms of the
+https://opensource.org/licenses/BSD-2-Clause[BSD 2-Clause License].

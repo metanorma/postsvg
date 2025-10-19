@@ -1,0 +1,528 @@
+= Graphics State Operators
+
+== General
+
+Graphics state operators manage the parameters that control how graphics
+operations are performed. The graphics state includes colors, line attributes,
+clipping paths, and the current transformation matrix (CTM).
+
+The graphics state can be saved and restored using `gsave` and `grestore`,
+enabling temporary state changes without losing the previous configuration.
+
+[[gsave]]
+== gsave
+
+=== General
+
+The `gsave` operator saves a copy of the current graphics state on the graphics
+state stack. This allows temporary changes to graphics parameters, which can
+later be restored using `grestore`.
+
+The graphics state stack is separate from the operand stack and the dictionary
+stack.
+
+=== Syntax
+
+[source,postscript]
+----
+gsave <1>
+----
+<1> Save current graphics state
+
+Where,
+
+Stack effect: `-- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+1 setlinewidth          % Set line width to 1
+0 0 0 setrgbcolor       % Black color
+
+gsave                   % Save state
+  5 setlinewidth        % Change to width 5
+  1 0 0 setrgbcolor     % Red color
+  % Draw with thick red lines
+  newpath
+  50 50 moveto
+  150 150 lineto
+  stroke
+grestore                % Restore: back to width 1, black
+
+% Now using original settings
+newpath
+50 150 moveto
+150 50 lineto
+stroke
+----
+
+The first line is thick and red, the second is thin and black.
+====
+
+[[grestore]]
+== grestore
+
+=== General
+
+The `grestore` operator restores the graphics state to the state saved by the
+most recent matching `gsave`. It pops the saved state from the graphics state
+stack.
+
+=== Syntax
+
+[source,postscript]
+----
+grestore <1>
+----
+<1> Restore saved graphics state
+
+Where,
+
+Stack effect: `-- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+gsave
+  100 100 translate     % Translate origin
+  45 rotate             % Rotate coordinate system
+  2 2 scale             % Scale up
+  % Draw transformed graphics
+  newpath
+  0 0 moveto
+  50 0 lineto
+  stroke
+grestore                % Restore original coordinate system
+
+% Back to untransformed coordinates
+----
+
+Commonly used to isolate coordinate transformations.
+====
+
+[[setlinewidth]]
+== setlinewidth
+
+=== General
+
+The `setlinewidth` operator sets the line width for subsequent stroke
+operations. The width is specified in user space units.
+
+The default line width is 1.0 unit.
+
+=== Syntax
+
+[source,postscript]
+----
+width setlinewidth <1> <2>
+----
+<1> Line width value (number)
+<2> Operator that sets line width
+
+Where,
+
+`width`:: Line width in user space units (number, must be non-negative)
+
+Stack effect: `width -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+50 50 moveto
+150 150 lineto
+3 setlinewidth          % 3-unit width
+stroke
+----
+
+Creates a line with 3-unit width.
+====
+
+[example]
+====
+[source,postscript]
+----
+0.5 setlinewidth        % Thin line
+newpath
+10 10 moveto 90 10 lineto
+stroke
+
+5 setlinewidth          % Thick line
+newpath
+10 30 moveto 90 30 lineto
+stroke
+----
+
+Demonstrates varying line widths.
+====
+
+[[setrgbcolor]]
+== setrgbcolor
+
+=== General
+
+The `setrgbcolor` operator sets both the fill and stroke colors using RGB
+(Red-Green-Blue) color values. Each component ranges from 0.0 (no intensity)
+to 1.0 (full intensity).
+
+=== Syntax
+
+[source,postscript]
+----
+red green blue setrgbcolor <1> <2> <3> <4>
+----
+<1> Red component (0.0 to 1.0)
+<2> Green component (0.0 to 1.0)
+<3> Blue component (0.0 to 1.0)
+<4> Operator that sets RGB color
+
+Where,
+
+`red`:: Red color component (number, 0.0 to 1.0)
+`green`:: Green color component (number, 0.0 to 1.0)
+`blue`:: Blue color component (number, 0.0 to 1.0)
+
+Stack effect: `red green blue -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+1 0 0 setrgbcolor       % Pure red
+newpath
+50 50 moveto
+150 50 lineto
+stroke
+----
+
+Draws a red line.
+====
+
+[example]
+====
+[source,postscript]
+----
+0 0 0 setrgbcolor       % Black (0, 0, 0)
+1 1 1 setrgbcolor       % White (1, 1, 1)
+0.5 0.5 0.5 setrgbcolor % 50% gray
+1 0 0 setrgbcolor       % Pure red
+0 1 0 setrgbcolor       % Pure green
+0 0 1 setrgbcolor       % Pure blue
+1 1 0 setrgbcolor       % Yellow (red + green)
+1 0 1 setrgbcolor       % Magenta (red + blue)
+0 1 1 setrgbcolor       % Cyan (green + blue)
+----
+
+Common RGB color values.
+====
+
+[[setgray]]
+== setgray
+
+=== General
+
+The `setgray` operator sets both fill and stroke colors to a grayscale value.
+A value of 0.0 is black, 1.0 is white, and intermediate values are shades of
+gray.
+
+This is equivalent to calling `setrgbcolor` with identical RGB components.
+
+=== Syntax
+
+[source,postscript]
+----
+gray setgray <1> <2>
+----
+<1> Grayscale value (0.0 to 1.0)
+<2> Operator that sets gray level
+
+Where,
+
+`gray`:: Grayscale intensity (number, 0.0=black, 1.0=white)
+
+Stack effect: `gray -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+0 setgray               % Black
+newpath
+10 10 moveto 90 10 lineto
+stroke
+
+0.5 setgray             % 50% gray
+newpath
+10 30 moveto 90 30 lineto
+stroke
+
+1 setgray               % White
+newpath
+10 50 moveto 90 50 lineto
+stroke
+----
+
+Three lines with different gray levels.
+====
+
+[[setlinecap]]
+== setlinecap
+
+=== General
+
+The `setlinecap` operator sets the shape of line ends (caps) for stroke
+operations. Three cap styles are available:
+
+* 0 - Butt cap: line ends exactly at endpoint
+* 1 - Round cap: semicircular cap extending beyond endpoint
+* 2 - Projecting square cap: square cap extending beyond endpoint
+
+The default cap style is 0 (butt).
+
+=== Syntax
+
+[source,postscript]
+----
+capstyle setlinecap <1> <2>
+----
+<1> Cap style code (0, 1, or 2)
+<2> Operator that sets line cap style
+
+Where,
+
+`capstyle`:: Integer code for cap style (0=butt, 1=round, 2=square)
+
+Stack effect: `capstyle -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+10 setlinewidth
+
+0 setlinecap            % Butt caps
+newpath
+20 20 moveto 180 20 lineto
+stroke
+
+1 setlinecap            % Round caps
+newpath
+20 50 moveto 180 50 lineto
+stroke
+
+2 setlinecap            % Square caps
+newpath
+20 80 moveto 180 80 lineto
+stroke
+----
+
+Demonstrates three cap styles with thick lines.
+====
+
+[[setlinejoin]]
+== setlinejoin
+
+=== General
+
+The `setlinejoin` operator sets how line segments are joined at corners when
+stroking paths. Three join styles are available:
+
+* 0 - Miter join: sharp pointed corner
+* 1 - Round join: rounded corner
+* 2 - Bevel join: flattened corner
+
+The default join style is 0 (miter).
+
+=== Syntax
+
+[source,postscript]
+----
+joinstyle setlinejoin <1> <2>
+----
+<1> Join style code (0, 1, or 2)
+<2> Operator that sets line join style
+
+Where,
+
+`joinstyle`:: Integer code for join style (0=miter, 1=round, 2=bevel)
+
+Stack effect: `joinstyle -- `
+
+=== Examples
+
+[example]
+[source,postscript]
+----
+10 setlinewidth
+
+0 setlinejoin           % Miter joins (sharp corners)
+newpath
+20 20 moveto 60 50 lineto 100 20 lineto
+stroke
+
+1 setlinejoin           % Round joins
+newpath
+20 60 moveto 60 90 lineto 100 60 lineto
+stroke
+
+2 setlinejoin           % Bevel joins
+newpath
+20 100 moveto 60 130 lineto 100 100 lineto
+stroke
+----
+
+The join style is most visible at acute angles with thick lines.
+
+[[setmiterlimit]]
+== setmiterlimit
+
+=== General
+
+The `setmiterlimit` operator sets the limit for miter joins. When two line
+segments meet at a sharp angle with miter joins, the point can extend far
+beyond the join point. The miter limit controls when to switch from a miter
+join to a bevel join.
+
+The miter limit is the ratio of miter length to line width. The default is 10.
+
+=== Syntax
+
+[source,postscript]
+----
+limit setmiterlimit <1> <2>
+----
+<1> Miter limit value (number)
+<2> Operator that sets miter limit
+
+Where,
+
+`limit`:: Miter limit ratio (number, must be >= 1.0)
+
+Stack effect: `limit -- `
+
+=== Examples
+
+[example]
+[source,postscript]
+----
+10 setlinewidth
+0 setlinejoin           % Use miter joins
+
+1.5 setmiterlimit       % Low limit, bevels easily
+newpath
+20 20 moveto 60 50 lineto 100 20 lineto
+stroke
+
+10 setmiterlimit        % Higher limit, sharp miters
+newpath
+20 60 moveto 60 90 lineto 100 60 lineto
+stroke
+----
+
+Lower miter limits cause more joins to be beveled at acute angles.
+
+[[setdash]]
+== setdash
+
+=== General
+
+The `setdash` operator establishes a dash pattern for stroke operations. The
+pattern is specified as an array of on/off lengths and an offset value.
+
+An empty array produces solid (unbroken) lines.
+
+=== Syntax
+
+[source,postscript]
+----
+array offset setdash <1> <2> <3>
+----
+<1> Array of dash lengths (array)
+<2> Offset into dash pattern (number)
+<3> Operator that sets dash pattern
+
+Where,
+
+`array`:: Array of alternating on/off lengths (empty array = solid line)
+`offset`:: Starting offset into the pattern (number)
+
+Stack effect: `array offset -- `
+
+=== Examples
+
+[example]
+[source,postscript]
+----
+[5 5] 0 setdash        % 5 on, 5 off
+newpath
+10 10 moveto 190 10 lineto
+stroke
+
+[10 5 2 5] 0 setdash   % Long dash, gap, dot, gap
+newpath
+10 30 moveto 190 30 lineto
+stroke
+
+[] 0 setdash           % Solid line (reset)
+newpath
+10 50 moveto 190 50 lineto
+stroke
+----
+
+Dash patterns can have any number of elements.
+
+== Graphics State Stack Management
+
+=== General
+
+The graphics state stack enables nested state changes without losing previous
+settings. Each `gsave` pushes a complete copy of the current state.
+
+=== Nesting example
+
+[example]
+[source,postscript]
+----
+1 setlinewidth
+0 0 0 setrgbcolor
+
+gsave                   % Level 1
+  2 setlinewidth
+  1 0 0 setrgbcolor
+
+  gsave                 % Level 2
+    5 setlinewidth
+    0 0 1 setrgbcolor
+    % Draw with width 5, blue
+  grestore              % Back to level 1
+
+  % Now width 2, red
+grestore                % Back to level 0
+
+% Now width 1, black
+----
+
+Multiple levels of state saving enable complex graphics compositions.
+
+== See Also
+
+* link:painting.adoc[Painting Operators] - Using colors and line widths
+* link:transformations.adoc[Transformations] - Also saved in graphics state
+* link:../graphics-model.adoc#graphics-state[Graphics State] - Conceptual
+  overview
+* link:index.adoc[Back to Operator Reference]

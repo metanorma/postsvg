@@ -1,0 +1,288 @@
+= PostScript Operator Reference
+
+== General
+
+This section provides comprehensive documentation for PostScript operators
+implemented or relevant to the Postsvg library. Operators are organized by
+functional category.
+
+== Operator Categories
+
+=== link:path-construction.adoc[Path Construction Operators]
+
+Operators for building geometric paths:
+
+* `newpath` - Initialize empty path
+* `moveto` - Begin new subpath at point
+* `rmoveto` - Begin new subpath at relative point
+* `lineto` - Append straight line segment
+* `rlineto` - Append relative straight line segment
+* `curveto` - Append cubic Bézier curve
+* `rcurveto` - Append relative cubic Bézier curve
+* `arc` - Append circular arc (counterclockwise)
+* `arcn` - Append circular arc (clockwise)
+* `arct` - Append circular arc tangent to two lines
+* `closepath` - Close current subpath
+
+=== link:painting.adoc[Painting Operators]
+
+Operators for rendering paths:
+
+* `stroke` - Stroke current path
+* `fill` - Fill current path (non-zero winding rule)
+* `eofill` - Fill current path (even-odd rule)
+* `clip` - Establish clipping path (non-zero winding rule)
+* `eoclip` - Establish clipping path (even-odd rule)
+* `flattenpath` - Flatten curves to line segments
+* `strokepath` - Convert stroke to filled path
+
+=== link:graphics-state.adoc[Graphics State Operators]
+
+Operators for managing graphics state:
+
+* `gsave` - Save current graphics state
+* `grestore` - Restore saved graphics state
+* `setlinewidth` - Set line width for stroking
+* `setlinecap` - Set line cap style
+* `setlinejoin` - Set line join style
+* `setmiterlimit` - Set miter limit for joins
+* `setdash` - Set dash pattern for lines
+* `setrgbcolor` - Set RGB color
+* `setgray` - Set grayscale color
+* `setcmykcolor` - Set CMYK color
+* `currentlinewidth` - Get current line width
+* `currentrgbcolor` - Get current RGB color
+
+=== link:transformations.adoc[Transformation Operators]
+
+Operators for coordinate system transformations:
+
+* `translate` - Translate origin
+* `scale` - Scale coordinate system
+* `rotate` - Rotate coordinate system
+* `concat` - Concatenate matrix to CTM
+* `matrix` - Create identity matrix
+* `currentmatrix` - Get current transformation matrix
+* `setmatrix` - Set transformation matrix
+* `identmatrix` - Create identity matrix
+* `defaultmatrix` - Get default matrix
+* `transform` - Transform point by matrix
+* `itransform` - Inverse transform point
+
+=== link:stack-manipulation.adoc[Stack Manipulation Operators]
+
+Operators for working with the operand stack:
+
+* `dup` - Duplicate top stack element
+* `pop` - Remove top stack element
+* `exch` - Exchange top two elements
+* `roll` - Roll stack elements
+* `copy` - Copy stack elements
+* `clear` - Clear entire stack
+* `count` - Count stack elements
+* `index` - Access stack element by index
+* `mark` - Push mark on stack
+* `cleartomark` - Clear stack to mark
+* `counttomark` - Count elements to mark
+
+=== link:arithmetic.adoc[Arithmetic Operators]
+
+Mathematical operators:
+
+* `add` - Addition
+* `sub` - Subtraction
+* `mul` - Multiplication
+* `div` - Division (real result)
+* `idiv` - Integer division
+* `mod` - Modulo (remainder)
+* `abs` - Absolute value
+* `neg` - Negation
+* `sqrt` - Square root
+* `sin` - Sine
+* `cos` - Cosine
+* `atan` - Arctangent
+* `exp` - Exponential
+* `ln` - Natural logarithm
+* `log` - Base-10 logarithm
+* `floor` - Round down
+* `ceiling` - Round up
+* `round` - Round to nearest
+* `truncate` - Remove fractional part
+
+=== link:control-flow.adoc[Control Flow Operators]
+
+Operators for program flow control:
+
+* `if` - Conditional execution
+* `ifelse` - Conditional branch
+* `for` - Counted loop
+* `repeat` - Simple loop
+* `loop` - Infinite loop
+* `exit` - Exit loop
+* `forall` - Iterate over array/dictionary
+* `exec` - Execute object
+* `stopped` - Execute with error handling
+* `stop` - Terminate stopped context
+
+=== link:dictionary.adoc[Dictionary Operators]
+
+Operators for dictionary management:
+
+* `dict` - Create dictionary
+* `begin` - Push dictionary on dictionary stack
+* `end` - Pop dictionary from dictionary stack
+* `def` - Define key-value pair
+* `load` - Get value for key
+* `store` - Store value for key
+* `get` - Get dictionary entry
+* `put` - Put dictionary entry
+* `known` - Test if key exists
+* `undef` - Remove definition
+* `where` - Find dictionary containing key
+* `currentdict` - Get current dictionary
+* `countdictstack` - Count dictionary stack depth
+
+== Operator Summary Table
+
+[cols="1,2,3",options="header"]
+|===
+|Operator |Category |Description
+
+|`newpath`
+|Path Construction
+|Initialize empty current path
+
+|`moveto`
+|Path Construction
+|Begin new subpath at (x, y)
+
+|`lineto`
+|Path Construction
+|Append line to (x, y)
+
+|`curveto`
+|Path Construction
+|Append Bézier curve
+
+|`closepath`
+|Path Construction
+|Close current subpath
+
+|`arc`
+|Path Construction
+|Append counterclockwise circular arc
+
+|`stroke`
+|Painting
+|Stroke current path
+
+|`fill`
+|Painting
+|Fill current path
+
+|`clip`
+|Painting
+|Set clipping path
+
+|`gsave`
+|Graphics State
+|Save graphics state
+
+|`grestore`
+|Graphics State
+|Restore graphics state
+
+|`setlinewidth`
+|Graphics State
+|Set line width
+
+|`setrgbcolor`
+|Graphics State
+|Set RGB color
+
+|`setgray`
+|Graphics State
+|Set grayscale value
+
+|`translate`
+|Transformations
+|Translate coordinate system
+
+|`scale`
+|Transformations
+|Scale coordinate system
+
+|`rotate`
+|Transformations
+|Rotate coordinate system
+
+|`dup`
+|Stack Manipulation
+|Duplicate top element
+
+|`pop`
+|Stack Manipulation
+|Remove top element
+
+|`exch`
+|Stack Manipulation
+|Exchange top two elements
+
+|`add`
+|Arithmetic
+|Add two numbers
+
+|`mul`
+|Arithmetic
+|Multiply two numbers
+
+|`div`
+|Arithmetic
+|Divide two numbers
+
+|`if`
+|Control Flow
+|Conditional execution
+
+|`for`
+|Control Flow
+|Counted loop
+
+|`def`
+|Dictionary
+|Define variable
+|===
+
+== Implementation Status in Postsvg
+
+The Postsvg library currently implements the following operators:
+
+=== Fully implemented
+
+* Path construction: `newpath`, `moveto`, `lineto`, `curveto`, `closepath`
+* Painting: `stroke`, `fill`
+* Graphics state: `gsave`, `grestore`, `setlinewidth`, `setrgbcolor`,
+  `setgray`
+* Transformations: `translate`, `scale`, `rotate`
+* Stack manipulation: Basic stack operations
+* Arithmetic: Basic math operations
+
+=== Partially implemented
+
+* Path construction: `arc`, `arcn` (basic support)
+* Control flow: Limited support for procedures
+
+=== Not yet implemented
+
+* Text operators: `show`, `findfont`, `setfont`
+* Image operators: `image`, `imagemask`
+* Pattern operators: `makepattern`, `setpattern`
+* Advanced clipping: Full clipping path support
+* Advanced graphics state: `setlinecap`, `setlinejoin`, `setdash`
+
+== See Also
+
+* link:../fundamentals.adoc[Language Fundamentals]
+* link:../graphics-model.adoc[Graphics Model]
+* link:../implementation-notes.adoc[Implementation Notes]
+* link:../index.adoc[Back to PostScript Quick Reference]

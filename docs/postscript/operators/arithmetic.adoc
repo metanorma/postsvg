@@ -1,0 +1,461 @@
+= Arithmetic Operators
+
+== General
+
+Arithmetic operators perform mathematical calculations on numbers from the
+operand stack. They consume their operands and push the result back onto the
+stack.
+
+PostScript supports both integer and real (floating-point) arithmetic, with
+automatic type promotion when mixing types.
+
+[[add]]
+== add
+
+=== General
+
+The `add` operator adds two numbers.
+
+=== Syntax
+
+[source,postscript]
+----
+num1 num2 add <1> <2> <3>
+----
+<1> First number
+<2> Second number
+<3> Operator that adds them
+
+Where,
+
+`num1, num2`:: Numbers to add
+
+Stack effect: `num1 num2 -- sum`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+5 3 add                % 8
+2.5 1.5 add            % 4.0
+----
+====
+
+[[sub]]
+== sub
+
+=== General
+
+The `sub` operator subtracts the second number from the first.
+
+=== Syntax
+
+[source,postscript]
+----
+num1 num2 sub <1> <2> <3>
+----
+<1> Minuend
+<2> Subtrahend
+<3> Operator that subtracts
+
+Where,
+
+`num1`:: Number to subtract from
+`num2`:: Number to subtract
+
+Stack effect: `num1 num2 -- difference`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+10 3 sub               % 7 (10 - 3)
+5 8 sub                % -3 (5 - 8)
+----
+====
+
+[[mul]]
+== mul
+
+=== General
+
+The `mul` operator multiplies two numbers.
+
+=== Syntax
+
+[source,postscript]
+----
+num1 num2 mul <1> <2> <3>
+----
+<1> First factor
+<2> Second factor
+<3> Operator that multiplies
+
+Where,
+
+`num1, num2`:: Numbers to multiply
+
+Stack effect: `num1 num2 -- product`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+6 7 mul                % 42
+2.5 4 mul              % 10.0
+----
+====
+
+[[div]]
+== div
+
+=== General
+
+The `div` operator divides two numbers, always producing a real result.
+
+=== Syntax
+
+[source,postscript]
+----
+num1 num2 div <1> <2> <3>
+----
+<1> Dividend
+<2> Divisor
+<3> Operator that divides
+
+Where,
+
+`num1`:: Number to divide
+`num2`:: Divisor (must not be zero)
+
+Stack effect: `num1 num2 -- quotient`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+10 4 div               % 2.5
+15 3 div               % 5.0
+----
+
+Always returns a real number.
+====
+
+[[idiv]]
+== idiv
+
+=== General
+
+The `idiv` operator performs integer division, truncating toward zero.
+
+=== Syntax
+
+[source,postscript]
+----
+int1 int2 idiv <1> <2> <3>
+----
+<1> Dividend (integer)
+<2> Divisor (integer)
+<3> Operator for integer division
+
+Where,
+
+`int1, int2`:: Integer operands
+
+Stack effect: `int1 int2 -- quotient`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+10 3 idiv              % 3 (truncated)
+-10 3 idiv             % -3 (toward zero)
+----
+====
+
+[[mod]]
+== mod
+
+=== General
+
+The `mod` operator returns the remainder after integer division.
+
+=== Syntax
+
+[source,postscript]
+----
+int1 int2 mod <1> <2> <3>
+----
+<1> Dividend
+<2> Divisor
+<3> Operator for modulo
+
+Where,
+
+`int1, int2`:: Integer operands
+
+Stack effect: `int1 int2 -- remainder`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+10 3 mod               % 1 (10 = 3×3 + 1)
+17 5 mod               % 2
+----
+====
+
+[[abs]]
+== abs
+
+=== General
+
+The `abs` operator returns the absolute value of a number.
+
+=== Syntax
+
+[source,postscript]
+----
+num abs <1> <2>
+----
+<1> Number
+<2> Operator for absolute value
+
+Where,
+
+`num`:: Any number
+
+Stack effect: `num -- |num|`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+-5 abs                 % 5
+3.14 abs               % 3.14
+----
+====
+
+[[neg]]
+== neg
+
+=== General
+
+The `neg` operator negates a number (multiplies by -1).
+
+=== Syntax
+
+[source,postscript]
+----
+num neg <1> <2>
+----
+<1> Number to negate
+<2> Operator that negates
+
+Where,
+
+`num`:: Any number
+
+Stack effect: `num -- -num`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+5 neg                  % -5
+-3 neg                 % 3
+----
+====
+
+[[sqrt]]
+== sqrt
+
+=== General
+
+The `sqrt` operator returns the square root of a number.
+
+=== Syntax
+
+[source,postscript]
+----
+num sqrt <1> <2>
+----
+<1> Number (non-negative)
+<2> Operator for square root
+
+Where,
+
+`num`:: Non-negative number
+
+Stack effect: `num -- √num`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+16 sqrt                % 4.0
+2 sqrt                 % 1.41421...
+----
+====
+
+[[sin]]
+== sin
+
+=== General
+
+The `sin` operator returns the sine of an angle in degrees.
+
+=== Syntax
+
+[source,postscript]
+----
+angle sin <1> <2>
+----
+<1> Angle in degrees
+<2> Operator for sine
+
+Where,
+
+`angle`:: Angle in degrees (number)
+
+Stack effect: `angle -- sine`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+0 sin                  % 0.0
+90 sin                 % 1.0
+30 sin                 % 0.5
+----
+====
+
+[[cos]]
+== cos
+
+=== General
+
+The `cos` operator returns the cosine of an angle in degrees.
+
+=== Syntax
+
+[source,postscript]
+----
+angle cos <1> <2>
+----
+<1> Angle in degrees
+<2> Operator for cosine
+
+Where,
+
+`angle`:: Angle in degrees (number)
+
+Stack effect: `angle -- cosine`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+0 cos                  % 1.0
+90 cos                 % 0.0
+60 cos                 % 0.5
+----
+====
+
+[[atan]]
+== atan
+
+=== General
+
+The `atan` operator returns the arctangent of num1/num2 in degrees, with
+proper handling of the quadrant.
+
+=== Syntax
+
+[source,postscript]
+----
+num1 num2 atan <1> <2> <3>
+----
+<1> Numerator (Y value)
+<2> Denominator (X value)
+<3> Operator for arctangent
+
+Where,
+
+`num1, num2`:: Numbers (num2 cannot be zero unless num1 is also zero)
+
+Stack effect: `num1 num2 -- angle`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+1 1 atan               % 45.0 (first quadrant)
+1 -1 atan              % 135.0 (second quadrant)
+----
+====
+
+== Arithmetic Patterns
+
+=== Calculating distances
+
+[example]
+====
+[source,postscript]
+----
+% Distance between (x1,y1) and (x2,y2)
+/x1 10 def /y1 20 def
+/x2 40 def /y2 60 def
+
+x2 x1 sub dup mul      % (x2-x1)²
+y2 y1 sub dup mul      % (y2-y1)²
+add sqrt               % √((x2-x1)² + (y2-y1)²)
+% Result: 50.0
+----
+
+Pythagorean theorem for distance.
+====
+
+=== Converting units
+
+[example]
+====
+[source,postscript]
+----
+% Inches to points (72 points per inch)
+2.5 72 mul             % 180.0 points
+
+% Degrees to radians (approximately)
+90 3.14159 mul 180 div % π/2 radians
+----
+====
+
+== See Also
+
+* link:../fundamentals.adoc#stack-based-execution-model[Stack Execution]
+* link:stack-manipulation.adoc[Stack Operators]
+* link:index.adoc[Back to Operator Reference]

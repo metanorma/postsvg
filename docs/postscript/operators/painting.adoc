@@ -1,0 +1,475 @@
+= Painting Operators
+
+== General
+
+Painting operators convert the current path into visible marks on the output
+device. These operators consume the current path (except for clipping operators)
+and use the current graphics state parameters (colors, line width, etc.) to
+determine the appearance of the painted graphics.
+
+The two fundamental painting operations are stroking (painting along the path)
+and filling (painting the interior of the path).
+
+[[stroke]]
+== stroke
+
+=== General
+
+The `stroke` operator paints a line along the current path using the current
+stroke color and line attributes. The path is consumed by this operation,
+leaving an empty current path.
+
+Stroking uses these graphics state parameters:
+
+* Stroke color (set by `setrgbcolor`, `setgray`, etc.)
+* Line width (set by `setlinewidth`)
+* Line cap style (set by `setlinecap`)
+* Line join style (set by `setlinejoin`)
+* Miter limit (set by `setmiterlimit`)
+* Dash pattern (set by `setdash`)
+
+=== Syntax
+
+[source,postscript]
+----
+stroke <1>
+----
+<1> Operator that strokes and consumes current path
+
+Where,
+
+Stack effect: `-- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+50 50 moveto
+150 150 lineto
+2 setlinewidth        % Set line width to 2 points
+0 0 0 setrgbcolor     % Set stroke color to black
+stroke                % Paint the line
+----
+
+Creates a diagonal line from (50, 50) to (150, 150) with 2-point width.
+====
+
+[example]
+====
+[source,postscript]
+----
+newpath
+100 100 50 0 360 arc  % Circle path
+1 0 0 setrgbcolor     % Red color
+3 setlinewidth        % 3-point width
+stroke                % Stroke circle outline
+----
+
+Draws a red circle outline.
+====
+
+[[fill]]
+== fill
+
+=== General
+
+The `fill` operator fills the interior of the current path with the current
+fill color using the non-zero winding number rule. The path is consumed,
+leaving an empty current path.
+
+The non-zero winding rule determines whether a point is inside the path by
+counting path crossings. It handles overlapping paths and paths with multiple
+subpaths.
+
+=== Syntax
+
+[source,postscript]
+----
+fill <1>
+----
+<1> Operator that fills and consumes current path
+
+Where,
+
+Stack effect: `-- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+50 50 moveto
+150 50 lineto
+100 150 lineto
+closepath
+0 0 1 setrgbcolor     % Blue fill color
+fill                  % Fill the triangle
+----
+
+Creates a solid blue triangle.
+====
+
+[example]
+====
+[source,postscript]
+----
+newpath
+100 100 50 0 360 arc  % Circle
+0.5 0.5 0.5 setrgbcolor  % Gray fill
+fill                  % Fill the circle
+----
+
+Draws a solid gray circle.
+====
+
+=== Non-zero winding rule
+
+[example]
+====
+[source,postscript]
+----
+newpath
+% Outer square (counterclockwise)
+0 0 moveto
+200 0 lineto
+200 200 lineto
+0 200 lineto
+closepath
+
+% Inner square (also counterclockwise)
+50 50 moveto
+150 50 lineto
+150 150 lineto
+50 150 lineto
+closepath
+
+fill
+----
+
+With both paths counterclockwise, both squares are filled. The winding numbers
+add up, keeping both regions inside.
+====
+
+[[eofill]]
+== eofill
+
+=== General
+
+The `eofill` operator fills the interior of the current path using the
+even-odd rule instead of the non-zero winding rule. The path is consumed.
+
+The even-odd rule determines whether a point is inside by counting crossings:
+if the count is odd, the point is inside; if even, it's outside. This creates
+alternating filled and unfilled regions for overlapping paths.
+
+=== Syntax
+
+[source,postscript]
+----
+eofill <1>
+----
+<1> Operator that fills using even-odd rule
+
+Where,
+
+Stack effect: `-- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+% Outer rectangle
+0 0 moveto
+200 0 lineto
+200 200 lineto
+0 200 lineto
+closepath
+
+% Inner rectangle (creates a hole)
+50 50 moveto
+150 50 lineto
+150 150 lineto
+50 150 lineto
+closepath
+
+eofill                % Creates frame with hole
+----
+
+The even-odd rule creates a rectangular frame: the outer rectangle is filled,
+but the inner rectangle becomes a hole.
+====
+
+[example]
+====
+[source,postscript]
+----
+newpath
+100 100 80 0 360 arc   % Outer circle
+closepath
+100 100 40 0 360 arc   % Inner circle
+closepath
+eofill                 % Creates ring/donut shape
+----
+
+Creates a ring by treating overlapping circles as alternating regions.
+====
+
+[[clip]]
+== clip
+
+=== General
+
+The `clip` operator establishes a clipping path from the current path using the
+non-zero winding rule. Unlike `stroke` and `fill`, `clip` does not consume the
+current path.
+
+The clipping path restricts all subsequent painting operations to the interior
+of the path. Only the intersection of painted marks and the clipping region
+becomes visible.
+
+Clipping paths can only be made more restrictive, not less. Use `gsave` and
+`grestore` to save and restore the clipping region.
+
+=== Syntax
+
+[source,postscript]
+----
+clip <1>
+----
+<1> Operator that establishes clipping path
+
+Where,
+
+Stack effect: `-- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+gsave                  % Save state to restore clipping later
+  newpath
+  100 100 50 0 360 arc % Circle
+  clip                 % Clip to circle
+
+  % Draw something - only visible within circle
+  newpath
+  0 0 moveto
+  200 200 lineto
+  stroke
+grestore               % Restore original clipping
+----
+
+Clips subsequent drawing to a circular region.
+====
+
+[example]
+====
+[source,postscript]
+----
+gsave
+  % Clip to text shape (if text operators supported)
+  newpath
+  50 50 moveto
+  150 50 lineto
+  150 150 lineto
+  50 150 lineto
+  closepath
+  clip
+
+  % Fill with pattern or gradient (would be clipped)
+  0.8 0.8 0.8 setrgbcolor
+  0 0 200 200 rectfill
+grestore
+----
+
+Common pattern: create clipping region, paint, then restore.
+====
+
+[[eoclip]]
+== eoclip
+
+=== General
+
+The `eoclip` operator is identical to `clip` except it uses the even-odd rule
+to determine the interior of the clipping path.
+
+=== Syntax
+
+[source,postscript]
+----
+eoclip <1>
+----
+<1> Operator that establishes even-odd clipping path
+
+Where,
+
+Stack effect: `-- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+gsave
+  newpath
+  % Outer circle
+  100 100 80 0 360 arc
+  closepath
+  % Inner circle (creates hole in clip)
+  100 100 40 0 360 arc
+  closepath
+  eoclip
+
+  % Draw in ring-shaped region
+  0.5 setgray
+  0 0 200 200 rectfill
+grestore
+----
+
+Creates a ring-shaped clipping region using even-odd rule.
+====
+
+[[stroke-vs-fill]]
+== Stroke vs Fill Comparison
+
+=== General
+
+Understanding when to use `stroke` versus `fill` is fundamental to PostScript
+graphics.
+
+=== Stroke characteristics
+
+* Paints along the path outline
+* Uses stroke color
+* Width controlled by line width
+* Affected by line cap and join styles
+* Path can be open or closed
+
+=== Fill characteristics
+
+* Paints the path interior
+* Uses fill color
+* No width parameter
+* Not affected by line attributes
+* Best with closed paths
+
+=== Combining stroke and fill
+
+[example]
+====
+[source,postscript]
+----
+newpath
+50 50 moveto
+150 50 lineto
+100 150 lineto
+closepath
+
+gsave
+  0 0 1 setrgbcolor   % Blue fill
+  fill                % Fill consumes path
+grestore
+
+% Must recreate path for stroke
+newpath
+50 50 moveto
+150 50 lineto
+100 150 lineto
+closepath
+
+1 0 0 setrgbcolor     % Red stroke
+3 setlinewidth
+stroke
+----
+
+To both fill and stroke a shape, you must either:
+1. Save state with `gsave`, fill, restore, then stroke
+2. Or recreate the path after filling
+====
+
+== Path Consumption
+
+=== General
+
+Most painting operators consume the current path, replacing it with an empty
+path. Understanding this behavior is crucial for correctly sequencing
+operations.
+
+=== Operators that consume the path
+
+* `stroke` - Consumes path after stroking
+* `fill` - Consumes path after filling
+* `eofill` - Consumes path after filling
+
+=== Operators that do not consume the path
+
+* `clip` - Preserves path for subsequent operations
+* `eoclip` - Preserves path for subsequent operations
+
+=== Working with path consumption
+
+[example]
+====
+[source,postscript]
+----
+% WRONG: Second operation has no path
+newpath
+50 50 moveto 150 150 lineto
+stroke                % Consumes path
+fill                  % Nothing to fill!
+
+% CORRECT: Use gsave/grestore or recreate
+newpath
+50 50 moveto 150 150 lineto
+gsave
+  stroke              % Consumes copy of path
+grestore
+fill                  % Original path preserved
+----
+====
+
+== Painting Order
+
+=== General
+
+PostScript follows the painter's algorithm: later operations paint over earlier
+ones. Objects are layered in the order they are painted.
+
+[example]
+====
+[source,postscript]
+----
+% Red square (painted first, underneath)
+newpath
+0 0 moveto 100 0 lineto 100 100 lineto 0 100 lineto closepath
+1 0 0 setrgbcolor
+fill
+
+% Blue circle (painted second, on top)
+newpath
+75 75 40 0 360 arc
+0 0 1 setrgbcolor
+fill
+----
+
+The blue circle appears on top of the red square because it was painted later.
+====
+
+== See Also
+
+* link:path-construction.adoc[Path Construction] - Building paths to paint
+* link:graphics-state.adoc[Graphics State] - Setting colors and line attributes
+* link:../graphics-model.adoc#painting-model[Painting Model] - Conceptual
+  overview
+* link:index.adoc[Back to Operator Reference]

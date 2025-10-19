@@ -1,0 +1,479 @@
+= Transformation Operators
+
+== General
+
+Transformation operators modify the current transformation matrix (CTM), which
+maps user space coordinates to device space. Transformations affect all
+subsequent graphics operations until the CTM is modified again or the graphics
+state is restored.
+
+The three basic transformations are translation, scaling, and rotation. These
+can be combined to produce complex coordinate system changes.
+
+[[translate]]
+== translate
+
+=== General
+
+The `translate` operator moves the origin of the user coordinate system to a
+new location. All subsequent coordinates are interpreted relative to this new
+origin.
+
+Translation is one of the most common transformations, used for positioning
+graphics at specific locations.
+
+=== Syntax
+
+[source,postscript]
+----
+tx ty translate <1> <2> <3>
+----
+<1> X-offset for translation (number)
+<2> Y-offset for translation (number)
+<3> Operator that applies translation
+
+Where,
+
+`tx`:: Translation in X direction (number)
+`ty`:: Translation in Y direction (number)
+
+Stack effect: `tx ty -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+100 50 translate        % Move origin to (100, 50)
+newpath
+0 0 moveto              % Now at (100, 50) in original space
+50 0 lineto             % Line to (150, 50)
+stroke
+----
+
+After translation, (0, 0) refers to point (100, 50) in the original coordinate
+system.
+====
+
+[example]
+====
+[source,postscript]
+----
+gsave
+  100 100 translate     % Translate to (100, 100)
+  newpath
+  0 0 50 0 360 arc      % Circle at translated origin
+  fill
+grestore
+
+% Back to original origin
+----
+
+Common pattern: translate, draw, then restore.
+====
+
+[[scale]]
+== scale
+
+=== General
+
+The `scale` operator multiplies the user space units by specified scale
+factors. This affects both coordinates and line widths.
+
+Scaling with equal X and Y factors produces uniform scaling. Different factors
+produce non-uniform (anisotropic) scaling.
+
+=== Syntax
+
+[source,postscript]
+----
+sx sy scale <1> <2> <3>
+----
+<1> X-axis scale factor (number)
+<2> Y-axis scale factor (number)
+<3> Operator that applies scaling
+
+Where,
+
+`sx`:: Scale factor for X direction (number)
+`sy`:: Scale factor for Y direction (number)
+
+Stack effect: `sx sy -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+2 2 scale               % Double all dimensions
+newpath
+50 50 moveto            % Actually (100, 100)
+25 0 rlineto            % Line of length 50 (2 × 25)
+stroke
+----
+
+After 2× scaling, all coordinates and dimensions are doubled.
+====
+
+[example]
+====
+[source,postscript]
+----
+gsave
+  2 1 scale             % Stretch in X, not Y
+  newpath
+  50 50 50 0 360 arc    % Ellipse (100×50)
+  stroke
+grestore
+----
+
+Non-uniform scaling creates an ellipse from a circle.
+====
+
+[example]
+====
+[source,postscript]
+----
+72 72 scale             % Scale to inches (72 points/inch)
+newpath
+1 1 moveto              % 1 inch from origin
+2 1 lineto              % 1 inch line
+stroke
+----
+
+Scaling can convert units (e.g., inches to points).
+====
+
+[[rotate]]
+== rotate
+
+=== General
+
+The `rotate` operator rotates the user coordinate system by the specified angle
+(in degrees) around the current origin. Positive angles rotate counterclockwise.
+
+Rotation affects both the coordinate axes and all subsequent drawing operations.
+
+=== Syntax
+
+[source,postscript]
+----
+angle rotate <1> <2>
+----
+<1> Rotation angle in degrees (number)
+<2> Operator that applies rotation
+
+Where,
+
+`angle`:: Rotation angle in degrees (number, positive=counterclockwise)
+
+Stack effect: `angle -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+45 rotate               % Rotate 45° counterclockwise
+newpath
+100 0 moveto            % At 45° angle from origin
+50 0 rlineto
+stroke
+----
+
+After 45° rotation, the positive X-axis points northeast.
+====
+
+[example]
+====
+[source,postscript]
+----
+gsave
+  100 100 translate     % Move to rotation center
+  30 rotate             % Rotate 30°
+  newpath
+  0 0 moveto
+  50 0 lineto           % Rotated line from center
+  stroke
+grestore
+----
+
+Typical pattern: translate to rotation center, then rotate.
+====
+
+[example]
+====
+[source,postscript]
+----
+% Draw 12 radial lines (like clock face)
+0 1 11 {                % Loop 0 to 11
+  gsave
+    100 100 translate   % Center point
+    30 mul rotate       % Rotate by 0°, 30°, 60°, etc.
+    0 0 moveto
+    40 0 lineto
+    stroke
+  grestore
+} for
+----
+
+Multiple rotations create radial patterns.
+====
+
+[[concat]]
+== concat
+
+=== General
+
+The `concat` operator concatenates (multiplies) an arbitrary matrix with the
+current transformation matrix. This provides full control over transformations
+beyond the basic translate/scale/rotate operations.
+
+The matrix format is `[a b c d tx ty]` representing:
+
+[source]
+----
+[ a  b  0 ]
+[ c  d  0 ]
+[ tx ty 1 ]
+----
+
+=== Syntax
+
+[source,postscript]
+----
+[a b c d tx ty] concat <1> <2>
+----
+<1> 6-element transformation matrix
+<2> Operator that concatenates matrix
+
+Where,
+
+`a, b, c, d`:: Matrix coefficients for rotation/scaling/shearing
+`tx, ty`:: Translation components
+
+Stack effect: `matrix -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+% Identity matrix (no change)
+[1 0 0 1 0 0] concat
+
+% Translation by (100, 50)
+[1 0 0 1 100 50] concat
+
+% Scaling by 2× in both directions
+[2 0 0 2 0 0] concat
+
+% Rotation by 45° (approximately)
+[0.707 0.707 -0.707 0.707 0 0] concat
+----
+
+Matrix format enables precise control over transformations.
+====
+
+[[currentmatrix]]
+== currentmatrix
+
+=== General
+
+The `currentmatrix` operator retrieves the current transformation matrix and
+stores it in the provided matrix object.
+
+This is useful for saving the current transformation state or examining the
+cumulative effect of multiple transformations.
+
+=== Syntax
+
+[source,postscript]
+----
+matrix currentmatrix <1> <2>
+----
+<1> Matrix object to receive CTM
+<2> Operator that retrieves current matrix
+
+Where,
+
+`matrix`:: Matrix object (created with `matrix` operator)
+
+Stack effect: `matrix -- matrix` (returns same matrix)
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+matrix currentmatrix    % Get current CTM
+% Matrix now contains [a b c d tx ty]
+----
+
+Returns the 6 coefficients of the current transformation.
+====
+
+[[setmatrix]]
+== setmatrix
+
+=== General
+
+The `setmatrix` operator replaces the CTM with the specified matrix. Unlike
+`concat`, which multiplies matrices, `setmatrix` completely replaces the CTM.
+
+Use this with caution, as it bypasses the normal transformation accumulation.
+
+=== Syntax
+
+[source,postscript]
+----
+[a b c d tx ty] setmatrix <1> <2>
+----
+<1> New transformation matrix
+<2> Operator that replaces CTM
+
+Where,
+
+`matrix`:: 6-element matrix to use as new CTM
+
+Stack effect: `matrix -- `
+
+[[matrix]]
+== matrix
+
+=== General
+
+The `matrix` operator creates a new identity matrix object. This is typically
+used with `currentmatrix` to capture the current transformation state.
+
+=== Syntax
+
+[source,postscript]
+----
+matrix <1>
+----
+<1> Create identity matrix object
+
+Where,
+
+Stack effect: `-- matrix`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+/savedmatrix matrix def      % Create matrix variable
+savedmatrix currentmatrix pop  % Save current CTM
+
+% Make transformations
+100 100 translate
+45 rotate
+
+% Restore saved transformation
+savedmatrix setmatrix
+----
+
+Save and restore transformation state.
+====
+
+== Transformation Order
+
+=== General
+
+Transformations are cumulative and apply in the order specified. The order
+matters because matrix multiplication is not commutative.
+
+=== Order matters
+
+[example]
+====
+[source,postscript]
+----
+% Pattern A: translate then rotate
+gsave
+  100 100 translate     % Step 1
+  45 rotate             % Step 2
+  newpath
+  0 0 moveto 50 0 lineto stroke
+grestore
+
+% Pattern B: rotate then translate
+gsave
+  45 rotate             % Step 1
+  100 100 translate     % Step 2
+  newpath
+  0 0 moveto 50 0 lineto stroke
+grestore
+----
+
+These produce different results: A rotates around point (100, 100), while B
+rotates around the origin then translates the result.
+====
+
+=== Typical transformation sequence
+
+[example]
+====
+[source,postscript]
+----
+gsave
+  % 1. Translate to desired position
+  xpos ypos translate
+
+  % 2. Rotate around that position
+  angle rotate
+
+  % 3. Scale if needed
+  sx sy scale
+
+  % 4. Draw in local coordinate system
+  % (0, 0) is now at (xpos, ypos), rotated and scaled
+  newpath
+  0 0 moveto
+  width 0 lineto
+  stroke
+grestore
+----
+
+Standard pattern: translate, rotate, scale, then draw.
+====
+
+== Coordinate System Inversion
+
+=== General
+
+PostScript uses a coordinate system with Y increasing upward, while many
+graphics systems (including SVG) use Y increasing downward. To convert between
+them, use a reflection transformation.
+
+[example]
+====
+[source,postscript]
+----
+% Reflect Y-axis for top-to-bottom coordinates
+1 -1 scale              % Flip Y
+0 -height translate     % Move origin to top
+
+% Now (0, 0) is top-left, Y increases downward
+----
+
+This transformation is commonly needed when converting PostScript to other
+formats.
+====
+
+== See Also
+
+* link:graphics-state.adoc[Graphics State] - Transformations are part of
+  graphics state
+* link:../graphics-model.adoc#coordinate-transformations[Coordinate
+  Transformations] - Conceptual overview
+* link:../svg-mapping.adoc#transformation-matrix[SVG Mapping] - Converting to
+  SVG transforms
+* link:index.adoc[Back to Operator Reference]

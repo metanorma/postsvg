@@ -1,0 +1,406 @@
+= PostScript Graphics Model
+
+== General
+
+The PostScript graphics model provides a powerful framework for describing
+two-dimensional vector graphics. It consists of three main components:
+
+* Current path - The geometric shape being constructed
+* Graphics state - Parameters affecting how shapes are rendered
+* Painting model - How paths are converted to visible output
+
+Understanding this model is essential for working with PostScript graphics.
+
+== Current Path
+
+=== General
+
+The current path is a sequence of connected and disconnected geometric shapes
+that define the outline of an object. The path is not visible until you apply
+a painting operation like `stroke` or `fill`.
+
+A path consists of one or more subpaths, where each subpath is either open or
+closed.
+
+=== Path construction
+
+Paths are built incrementally using path construction operators:
+
+[source,postscript]
+----
+newpath           % Initialize empty path
+10 10 moveto      % Begin new subpath at (10, 10)
+90 10 lineto      % Add line segment to (90, 10)
+90 90 lineto      % Add line segment to (90, 90)
+10 90 lineto      % Add line segment to (10, 90)
+closepath         % Close subpath back to start
+----
+
+This creates a rectangular path with four line segments.
+
+=== Path segments
+
+Straight lines:: Created with `moveto` and `lineto`
+Curves:: Created with `curveto` using Bézier curves
+Arcs:: Created with `arc` and `arcn` for circular segments
+
+[example]
+====
+[source,postscript]
+----
+newpath
+50 50 moveto              % Start point
+50 150 curveto            % Control point 1
+150 150 curveto           % Control point 2
+150 50 lineto             % End point: curved then straight
+----
+
+This creates a path with both curved and straight segments.
+====
+
+=== Subpaths
+
+A path can contain multiple subpaths, each started with `moveto`:
+
+[example]
+====
+[source,postscript]
+----
+newpath
+% First subpath: outer rectangle
+0 0 moveto
+100 0 lineto
+100 100 lineto
+0 100 lineto
+closepath
+
+% Second subpath: inner rectangle (hole)
+25 25 moveto
+75 25 lineto
+75 75 lineto
+25 75 lineto
+closepath
+
+fill  % Fills outer, creates hole with inner
+----
+
+Multiple subpaths enable complex shapes with holes.
+====
+
+== Graphics State
+
+=== General
+
+The graphics state is a collection of parameters that control how graphics
+operations are performed. It includes colors, line attributes, clipping paths,
+and transformation matrices.
+
+The graphics state can be saved and restored using `gsave` and `grestore`,
+enabling temporary changes without losing the previous state.
+
+=== Graphics state parameters
+
+==== Current transformation matrix (CTM)
+
+A 3×2 matrix that maps user space coordinates to device space:
+
+[source]
+----
+[ a  b  0 ]
+[ c  d  0 ]
+[ e  f  1 ]
+----
+
+Where `[a b c d e f]` represents the transformation.
+
+==== Color parameters
+
+Fill color:: Color used for `fill` operations
+Stroke color:: Color used for `stroke` operations
+
+Both are set with color operators like `setrgbcolor` or `setgray`.
+
+==== Line parameters
+
+Line width:: Thickness of stroked lines (set with `setlinewidth`)
+Line cap:: Shape of line ends (set with `setlinecap`)
+Line join:: Shape of line corners (set with `setlinejoin`)
+Miter limit:: Limit for miter joins (set with `setmiterlimit`)
+Dash pattern:: Pattern for dashed lines (set with `setdash`)
+
+==== Clipping path
+
+The clipping path restricts the visible region. Only graphics within the
+clipping path are rendered.
+
+=== Graphics state stack
+
+[example]
+====
+[source,postscript]
+----
+1 setlinewidth        % Set line width to 1
+0 0 0 setrgbcolor     % Set color to black
+
+gsave                 % Save current state
+  5 setlinewidth      % Change to width 5
+  1 0 0 setrgbcolor   % Change to red
+  % Draw with thick red lines
+grestore              % Restore: back to width 1, black
+
+% Now drawing with original settings
+----
+
+The `gsave`/`grestore` pair maintains state isolation.
+====
+
+== Painting Model
+
+=== General
+
+Painting operations convert the current path into visible marks on the page.
+The two primary operations are stroking and filling.
+
+[[stroke-operation]]
+=== Stroking
+
+The `stroke` operator paints a line along the current path using the current
+stroke color and line attributes.
+
+[source,postscript]
+----
+newpath
+10 10 moveto
+90 90 lineto
+2 setlinewidth        % Set line width
+1 0 0 setrgbcolor     % Set color to red
+stroke                % Paint the line
+----
+
+Stroking uses:
+
+* Stroke color
+* Line width
+* Line cap style
+* Line join style
+* Dash pattern
+
+[[fill-operation]]
+=== Filling
+
+The `fill` operator fills the interior of the current path with the current
+fill color.
+
+[source,postscript]
+----
+newpath
+50 50 moveto
+150 50 lineto
+100 150 lineto
+closepath
+0 0 1 setrgbcolor     % Set color to blue
+fill                  % Fill the triangle
+----
+
+=== Fill rules
+
+PostScript supports two fill rules for determining what is "inside" a path:
+
+Non-zero winding rule:: Default rule, used by `fill`
+Even-odd rule:: Alternative rule, used by `eofill`
+
+[example]
+====
+[source,postscript]
+----
+% Two overlapping squares
+newpath
+0 0 moveto 100 0 lineto 100 100 lineto 0 100 lineto closepath
+50 50 moveto 150 50 lineto 150 150 lineto 50 150 lineto closepath
+
+fill      % Uses non-zero winding: both squares filled
+% OR
+eofill    % Uses even-odd: overlap creates hole
+----
+
+The even-odd rule treats overlapping regions differently than the non-zero
+winding rule.
+====
+
+=== Clipping
+
+The `clip` operator establishes a clipping path that restricts subsequent
+drawing operations.
+
+[example]
+====
+[source,postscript]
+----
+gsave
+  % Define clipping region
+  newpath
+  50 50 100 0 360 arc  % Circle
+  clip                 % Establish as clip path
+
+  % Draw something - only visible within circle
+  newpath
+  0 0 moveto
+  200 200 lineto
+  stroke
+grestore  % Remove clipping restriction
+----
+
+Clipping is useful for masking graphics to specific regions.
+====
+
+== Coordinate Transformations
+
+=== General
+
+Coordinate transformations modify the current transformation matrix (CTM),
+affecting how coordinates are interpreted in subsequent operations.
+
+=== Transformation types
+
+[[translation]]
+==== Translation
+
+Move the origin to a new location:
+
+[source,postscript]
+----
+100 50 translate  % Move origin to (100, 50)
+0 0 moveto        % Now at (100, 50) in original space
+----
+
+[[scaling]]
+==== Scaling
+
+Scale the coordinate system:
+
+[source,postscript]
+----
+2 2 scale         % Double all dimensions
+50 50 moveto      % Actually at (100, 100)
+25 0 rlineto      % Draws line of length 50
+----
+
+[[rotation]]
+==== Rotation
+
+Rotate the coordinate system:
+
+[source,postscript]
+----
+45 rotate         % Rotate 45 degrees counterclockwise
+100 0 moveto      % Moves at 45-degree angle
+----
+
+=== Transformation order
+
+Transformations are cumulative and apply in the order specified:
+
+[example]
+====
+[source,postscript]
+----
+gsave
+  100 100 translate  % Step 1: Move origin to (100, 100)
+  45 rotate          % Step 2: Rotate around new origin
+  2 2 scale          % Step 3: Scale in rotated space
+
+  % Draw a square - it will be:
+  % - Doubled in size (scale)
+  % - Rotated 45 degrees (rotate)
+  % - Positioned at (100, 100) (translate)
+  newpath
+  0 0 moveto
+  50 0 lineto
+  50 50 lineto
+  0 50 lineto
+  closepath
+  stroke
+grestore
+----
+
+The order matters: translating then rotating gives different results than
+rotating then translating.
+====
+
+=== Transformation matrices
+
+Advanced users can manipulate the CTM directly using matrix operators:
+
+[source,postscript]
+----
+[a b c d e f] concat  % Concatenate matrix to CTM
+matrix currentmatrix  % Get current CTM
+[...] setmatrix       % Set CTM directly
+----
+
+== Device Independence
+
+=== General
+
+PostScript's graphics model is device-independent, meaning the same PostScript
+code produces consistent output on different devices (printers, displays).
+
+The CTM handles conversion from user space (coordinates in your program) to
+device space (pixels or dots on the output device).
+
+=== Resolution independence
+
+[example]
+====
+A circle with radius 50 points:
+
+[source,postscript]
+----
+50 50 50 0 360 arc
+----
+
+This produces:
+
+* On 72 dpi screen: circle with ~50 pixel radius
+* On 300 dpi printer: circle with ~208 pixel radius
+* On 1200 dpi imagesetter: circle with ~833 pixel radius
+
+The physical size (approximately 0.69 inches diameter) remains constant.
+====
+
+== Paint Order
+
+=== General
+
+PostScript follows a painter's algorithm: later operations paint over earlier
+ones.
+
+[example]
+====
+[source,postscript]
+----
+% Draw red square
+newpath
+0 0 moveto 100 0 lineto 100 100 lineto 0 100 lineto closepath
+1 0 0 setrgbcolor
+fill
+
+% Draw blue circle - will overlap red square
+newpath
+50 50 30 0 360 arc
+0 0 1 setrgbcolor
+fill
+----
+
+The blue circle appears on top of the red square because it was drawn later.
+====
+
+== See Also
+
+* link:fundamentals.adoc[Language Fundamentals] - PostScript language basics
+* link:operators/path-construction.adoc[Path Construction] - Building paths
+* link:operators/painting.adoc[Painting Operators] - Stroking and filling
+* link:operators/graphics-state.adoc[Graphics State] - State management
+* link:operators/transformations.adoc[Transformations] - Coordinate transforms
+* link:svg-mapping.adoc[SVG Mapping] - How PostScript maps to SVG
+* link:index.adoc[Back to PostScript Quick Reference]

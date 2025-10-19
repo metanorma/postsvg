@@ -1,0 +1,356 @@
+= PostScript Language Fundamentals
+
+== General
+
+PostScript is a stack-based, interpreted programming language created by Adobe
+Systems in 1984. It was designed as a page description language for printers
+and imagesetters, but its capabilities extend to general-purpose programming.
+
+The Postsvg library implements the graphics subset of PostScript necessary for
+converting vector graphics to SVG format.
+
+== Stack-Based Execution Model
+
+=== General
+
+PostScript uses a Last-In-First-Out (LIFO) stack called the operand stack to
+hold data values. All operations in PostScript work by manipulating this stack.
+
+When you execute a PostScript program, numbers and other literal values are
+pushed onto the stack, and operators consume values from the stack and push
+results back onto it.
+
+=== Stack operations
+
+[source,postscript]
+----
+5           % Push 5 onto stack → [5]
+3           % Push 3 onto stack → [5 3]
+add         % Add: pop 3 and 5, push 8 → [8]
+2           % Push 2 onto stack → [8 2]
+mul         % Multiply: pop 2 and 8, push 16 → [16]
+----
+
+Stack state notation: `[...]` shows stack contents, rightmost is top.
+
+=== Stack visualization
+
+[example]
+====
+[source]
+----
+Initial:  []
+10        [10]
+20        [10 20]
+30        [10 20 30]
+add       [10 50]     % 20 + 30 = 50
+mul       [500]       % 10 * 50 = 500
+----
+
+The final result (500) remains on the stack.
+====
+
+== Data Types
+
+=== General
+
+PostScript supports several data types, each serving specific purposes in
+graphics programming.
+
+[[numbers]]
+=== Numbers
+
+Numbers can be integers or real (floating-point) values.
+
+Integers:: Whole numbers without a decimal point (e.g., `42`, `-7`, `0`)
+Reals:: Numbers with decimal points (e.g., `3.14`, `-2.5`, `0.0`)
+
+[example]
+====
+[source,postscript]
+----
+100          % Integer
+72.5         % Real number
+-3.14159     % Negative real
+1.0e6        % Scientific notation (1,000,000)
+----
+====
+
+[[strings]]
+=== Strings
+
+Strings are sequences of characters enclosed in parentheses.
+
+[source,postscript]
+----
+(Hello, World!)        % Simple string
+(Line 1\nLine 2)       % String with newline
+(Parentheses \( \))    % Escaped parentheses
+----
+
+[[names]]
+=== Names
+
+Names are identifiers used to reference operators, variables, and procedures.
+Literal names begin with a forward slash (`/`).
+
+[source,postscript]
+----
+/MyVariable    % Literal name
+moveto         % Executable name (operator)
+/Times-Roman   % Literal name for font
+----
+
+[[arrays]]
+=== Arrays
+
+Arrays are ordered collections of objects, enclosed in square brackets.
+
+[source,postscript]
+----
+[1 2 3 4 5]              % Array of numbers
+[/name 100 (string)]     % Mixed-type array
+[1 2 add 3]              % Array with executable operator
+----
+
+[[procedures]]
+=== Procedures
+
+Procedures are executable arrays enclosed in curly braces, used for defining
+reusable code blocks.
+
+[source,postscript]
+----
+{ 2 mul }                % Procedure to double a number
+{ 0 0 moveto 100 100 lineto stroke }  % Drawing procedure
+----
+
+[[booleans]]
+=== Booleans
+
+Boolean values represent true or false.
+
+[source,postscript]
+----
+true         % Boolean true
+false        % Boolean false
+----
+
+== Coordinate System
+
+=== General
+
+PostScript uses a Cartesian coordinate system where:
+
+* Origin (0, 0) is at the bottom-left corner
+* X-axis increases to the right
+* Y-axis increases upward
+* Default unit is 1 point (1/72 inch)
+
+=== Coordinate system diagram
+
+[source]
+----
+    +Y
+    ↑
+    |
+    |     (100, 100)
+    |         •
+    |
+    |
+    |  •
+    | (50, 50)
+    |
+    +---------------→ +X
+   (0, 0)
+----
+
+=== User space vs device space
+
+User space:: The coordinate system used in PostScript programs
+Device space:: The actual physical coordinates of the output device
+
+Transformations convert between these spaces, allowing device-independent
+graphics programming.
+
+== Syntax Rules
+
+=== General
+
+PostScript syntax is designed to be simple and consistent.
+
+=== Whitespace
+
+Whitespace (spaces, tabs, newlines) separates tokens and is generally ignored.
+
+[source,postscript]
+----
+10 20 add    % Same as:
+10
+20
+add
+----
+
+=== Comments
+
+Comments begin with `%` and extend to the end of the line.
+
+[source,postscript]
+----
+% This is a comment
+100 100 moveto  % Move to point (100, 100)
+----
+
+Special comments:
+
+`%!PS-Adobe-3.0`:: Header identifying PostScript version
+`%%BoundingBox: llx lly urx ury`:: Defines document bounding box
+
+[example]
+====
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 612 792
+%%Title: My Document
+%%Creator: Postsvg Example
+----
+
+These structured comments provide metadata about the PostScript file.
+====
+
+=== Case sensitivity
+
+PostScript is case-sensitive. `moveto`, `MoveTo`, and `MOVETO` are all
+different names.
+
+[source,postscript]
+----
+/MyName 100 def    % Defines MyName
+/myname 200 def    % Defines different name: myname
+----
+
+=== Token delimiters
+
+Tokens are delimited by:
+
+* Whitespace (space, tab, newline)
+* Special characters: `()`, `<>`, `[]`, `{}`, `%`, `/`
+
+[source,postscript]
+----
+[1 2 3]        % Array tokens: [ 1 2 3 ]
+{2 mul}        % Procedure tokens: { 2 mul }
+/name 100      % Name token: /name followed by 100
+----
+
+== Execution Model
+
+=== General
+
+PostScript programs execute sequentially, processing tokens one at a time.
+
+=== Literal vs executable objects
+
+Literal objects:: Pushed directly onto the stack (numbers, literal names,
+strings)
+Executable objects:: Executed when encountered (operators, procedures)
+
+[example]
+====
+[source,postscript]
+----
+100          % Literal: pushed to stack → [100]
+/name        % Literal name: pushed to stack → [100 /name]
+dup          % Executable: duplicates top stack item → [100 /name /name]
+----
+====
+
+=== Immediate execution
+
+[source,postscript]
+----
+5 3 add      % Executes add immediately: [8]
+{ 5 3 add }  % Creates procedure, does not execute: [{ 5 3 add }]
+exec         % Executes procedure on stack: [8]
+----
+
+== Dictionaries and Scopes
+
+=== General
+
+Dictionaries are associative arrays that map keys to values. They implement
+variable storage in PostScript.
+
+=== Dictionary stack
+
+PostScript maintains a dictionary stack separate from the operand stack.
+Name lookup searches from the top of the dictionary stack downward.
+
+=== Defining variables
+
+[source,postscript]
+----
+/MyVar 100 def       % Define MyVar with value 100
+MyVar 2 mul          % Use MyVar: [200]
+----
+
+The `def` operator stores a key-value pair in the current dictionary.
+
+=== Local dictionaries
+
+[source,postscript]
+----
+10 dict begin        % Create and enter new dictionary
+  /x 100 def         % Define x locally
+  /y 200 def         % Define y locally
+  x y add            % Use local variables: [300]
+end                  % Exit dictionary
+----
+
+== Program Structure
+
+=== General
+
+A typical PostScript graphics program follows this structure:
+
+[example]
+====
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 200 200
+
+% Define any procedures or variables
+/box {  % Procedure to draw a box
+  newpath
+  0 0 moveto
+  100 0 lineto
+  100 100 lineto
+  0 100 lineto
+  closepath
+} def
+
+% Main graphics commands
+gsave                % Save state
+  50 50 translate    % Position the box
+  box                % Draw box outline
+  0.5 setgray        % Set gray color
+  stroke             % Render the outline
+grestore             % Restore state
+
+showpage             % Display the page
+%%EOF
+----
+
+This example defines a reusable box procedure, positions it using
+transformations, and renders it with specified styling.
+====
+
+== See Also
+
+* link:graphics-model.adoc[Graphics Model] - Graphics state and paths
+* link:operators/stack-manipulation.adoc[Stack Operators] - Stack
+  manipulation commands
+* link:operators/dictionary.adoc[Dictionary Operators] - Dictionary operations
+* link:index.adoc[Back to PostScript Quick Reference]

@@ -1,0 +1,230 @@
+= Control Flow Operators
+
+== General
+
+Control flow operators enable conditional execution, loops, and procedure
+execution in PostScript programs. These operators use procedures (executable
+arrays enclosed in curly braces) to define code blocks.
+
+[[if]]
+== if
+
+=== General
+
+The `if` operator executes a procedure if a boolean condition is true.
+
+=== Syntax
+
+[source,postscript]
+----
+bool {procedure} if <1> <2> <3>
+----
+<1> Boolean value (true or false)
+<2> Procedure to execute if true
+<3> Operator that conditionally executes
+
+Where,
+
+`bool`:: Boolean value (true or false)
+`procedure`:: Code to execute if bool is true
+
+Stack effect: `bool proc -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+5 3 gt {               % If 5 > 3
+  (5 is greater) show
+} if
+----
+
+Executes procedure only when condition is true.
+====
+
+[[ifelse]]
+== ifelse
+
+=== General
+
+The `ifelse` operator executes one procedure if true, another if false.
+
+=== Syntax
+
+[source,postscript]
+----
+bool {proc1} {proc2} ifelse <1> <2> <3> <4>
+----
+<1> Boolean condition
+<2> Procedure for true case
+<3> Procedure for false case
+<4> Operator that branches
+
+Where,
+
+`bool`:: Boolean value
+`proc1`:: Execute if true
+`proc2`:: Execute if false
+
+Stack effect: `bool proc1 proc2 -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+x 0 lt {
+  x neg              % Absolute value
+} {
+  x
+} ifelse
+----
+
+Conditional branching.
+====
+
+[[for]]
+== for
+
+=== General
+
+The `for` operator executes a procedure for each value in a numeric range.
+
+=== Syntax
+
+[source,postscript]
+----
+initial increment limit {procedure} for <1> <2> <3> <4> <5>
+----
+<1> Starting value
+<2> Increment value
+<3> Ending value (inclusive)
+<4> Procedure to execute
+<5> Loop operator
+
+Where,
+
+`initial`:: Starting value (number)
+`increment`:: Step size (number)
+`limit`:: Ending value (number)
+`procedure`:: Code to execute (receives current value)
+
+Stack effect: `init incr limit proc -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+1 1 10 {             % Loop from 1 to 10, step 1
+  dup mul            % Square each number
+  = % Print
+} for
+----
+
+Prints squares 1, 4, 9, ..., 100.
+====
+
+[[repeat]]
+== repeat
+
+=== General
+
+The `repeat` operator executes a procedure a specified number of times.
+
+=== Syntax
+
+[source,postscript]
+----
+n {procedure} repeat <1> <2> <3>
+----
+<1> Number of iterations
+<2> Procedure to execute
+<3> Repeat operator
+
+Where,
+
+`n`:: Number of times to execute (integer)
+`procedure`:: Code to execute
+
+Stack effect: `n proc -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+5 {
+  (Hello) show
+} repeat
+----
+
+Executes procedure 5 times.
+====
+
+[[loop]]
+== loop
+
+=== General
+
+The `loop` operator executes a procedure indefinitely until `exit` is called.
+
+=== Syntax
+
+[source,postscript]
+----
+{procedure} loop <1> <2>
+----
+<1> Procedure to execute repeatedly
+<2> Loop operator
+
+Where,
+
+`procedure`:: Code to execute (must contain `exit` to terminate)
+
+Stack effect: `proc -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+0             % Counter
+{
+  dup 10 ge {exit} if  % Exit when >= 10
+  1 add                % Increment
+} loop
+----
+
+Infinite loop with exit condition.
+====
+
+[[exit]]
+== exit
+
+=== General
+
+The `exit` operator terminates the innermost enclosing loop (`for`, `repeat`,
+or `loop`).
+
+=== Syntax
+
+[source,postscript]
+----
+exit <1>
+----
+<1> Exit from loop
+
+Stack effect: `-- `
+
+== See Also
+
+* link:../fundamentals.adoc#execution-model[Execution Model]
+* link:dictionary.adoc[Dictionary Operators]
+* link:index.adoc[Back to Operator Reference]

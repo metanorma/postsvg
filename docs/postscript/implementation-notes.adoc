@@ -1,0 +1,314 @@
+= Postsvg Implementation Notes
+
+== General
+
+This document describes implementation-specific details of the Postsvg library,
+including supported features, current limitations, architecture overview, and
+testing approach.
+
+== Supported Features
+
+=== Fully implemented operators
+
+==== Path construction
+
+* `newpath` - Initialize empty path
+* `moveto` - Begin new subpath
+* `lineto` - Append straight line
+* `curveto` - Append cubic Bézier curve
+* `closepath` - Close current subpath
+
+==== Painting
+
+* `stroke` - Stroke current path
+* `fill` - Fill current path with non-zero winding rule
+
+==== Graphics state
+
+* `gsave` - Save graphics state
+* `grestore` - Restore graphics state
+* `setlinewidth` - Set line width
+* `setrgbcolor` - Set RGB color
+* `setgray` - Set grayscale color
+
+==== Transformations
+
+* `translate` - Translate coordinate system
+* `scale` - Scale coordinate system
+* `rotate` - Rotate coordinate system
+
+==== Stack and arithmetic
+
+* Basic stack operations: `dup`, `pop`, `exch`
+* Arithmetic operators: `add`, `sub`, `mul`, `div`
+
+=== Partially implemented
+
+==== Path construction
+
+* `arc` - Basic circular arc support (counterclockwise)
+* `arcn` - Basic circular arc support (clockwise)
+
+Limited to simple cases; complex arc operations may not work correctly.
+
+==== Control flow
+
+* `if`, `ifelse` - Basic conditionals
+* `for`, `repeat` - Basic loops
+
+Limited support for procedures; complex control structures may fail.
+
+== Current Limitations
+
+=== Not yet implemented
+
+==== Text operations
+
+* `show` - Show text string
+* `findfont` - Find font
+* `setfont` - Set current font
+* `scalefont` - Scale font
+
+Text in PostScript files is ignored.
+
+==== Image operations
+
+* `image` - Paint sampled image
+* `imagemask` - Paint image mask
+
+Images are not supported.
+
+==== Pattern and gradient operations
+
+* `makepattern` - Create pattern
+* `setpattern` - Set pattern as color
+
+Patterns and gradients are not supported.
+
+==== Advanced graphics state
+
+* `setlinecap` - Set line cap style
+* `setlinejoin` - Set line join style
+* `setdash` - Set dash pattern
+* `clip`, `eoclip` - Clipping paths
+
+These operators are recognized but may not affect output.
+
+==== Dictionary and scope
+
+* Limited dictionary support
+* Procedure definitions work only in simple cases
+
+=== Known issues
+
+==== Arc conversion
+
+Arcs are converted to line segments rather than SVG arc commands in some cases,
+which may increase output size.
+
+==== Transformation accuracy
+
+Complex transformation sequences may accumulate floating-point errors.
+
+==== Color precision
+
+Colors are converted to 8-bit RGB hex values, potentially losing precision from
+PostScript's floating-point representation.
+
+== Architecture Overview
+
+=== Component diagram
+
+[source]
+----
+┌────────────────────────────────────────┐
+│           Postsvg Module               │
+│                                        │
+│  convert(ps_content) → svg_string      │
+│  convert_file(input, output)           │
+└────────────┬───────────────────────────┘
+             │
+     ┌───────┴────────┐
+     │                │
+┌────▼─────┐    ┌─────▼────────┐
+│  Parser  │    │  Converter   │
+│          │    │              │
+│ Parslet  │───>│ Interpreter  │
+│ Grammar  │    │              │
+└──────────┘    └──────┬───────┘
+                       │
+              ┌────────┴────────┐
+              │                 │
+        ┌─────▼──────┐   ┌──────▼────────┐
+        │  Graphics  │   │      SVG      │
+        │   State    │──>│  Generator    │
+        └────────────┘   └───────────────┘
+----
+
+=== Parser (Parslet-based)
+
+Location:: `lib/postsvg/parser/postscript_parser.rb`
+Purpose:: Tokenizes and parses PostScript syntax
+
+The parser uses Parslet, a PEG (Parsing Expression Grammar) library, to build
+an abstract syntax tree from PostScript source code.
+
+=== Converter (Interpreter)
+
+Location:: `lib/postsvg/converter.rb`
+Purpose:: Interprets PostScript commands
+
+The converter maintains:
+
+* Operand stack for PostScript execution
+* Dictionary for variable storage
+* Graphics state object
+
+=== Graphics State
+
+Location:: `lib/postsvg/graphics_state.rb`
+Purpose:: Tracks graphics parameters
+
+Maintains:
+
+* Current path segments
+* Fill and stroke colors
+* Line width
+* Transformation matrix
+* Graphics state stack
+
+=== SVG Generator
+
+Location:: `lib/postsvg/svg_generator.rb`
+Purpose:: Generates SVG output
+
+Converts the interpreted graphics operations into SVG XML format.
+
+== Testing Approach
+
+=== Test organization
+
+[source]
+----
+spec/
+├── postsvg_spec.rb              # Integration tests
+├── fixtures/
+│   ├── ps2svg/                  # Reference files from ps2svg
+│   │   ├── colors.ps
+│   │   ├── colors_expected.svg
+│   │   └── ...
+│   └── eps2svg/                 # Reference files from vectory
+│       ├── img.eps
+│       └── ref.svg
+└── postsvg/
+    ├── parser_spec.rb           # Parser unit tests
+    ├── graphics_state_spec.rb   # Graphics state tests
+    ├── converter_spec.rb        # Converter tests (TBD)
+    └── svg_generator_spec.rb    # Generator tests (TBD)
+----
+
+=== Reference test suites
+
+Postsvg uses test fixtures from two sources:
+
+1. **ps2svg TypeScript project** - Comprehensive PostScript test cases
+2. **vectory gem** - Real-world EPS/PS files
+
+Tests verify that Postsvg produces equivalent SVG output to these reference
+implementations.
+
+== Usage Patterns
+
+=== Basic conversion
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Convert PostScript string to SVG
+ps_content = File.read('input.ps')
+svg_output = Postsvg.convert(ps_content)
+
+# Save result
+File.write('output.svg', svg_output)
+----
+
+=== File conversion
+
+[source,ruby]
+----
+# Convert file directly
+Postsvg.convert_file('input.eps', 'output.svg')
+
+# Or get SVG without saving
+svg = Postsvg.convert_file('input.ps')
+----
+
+=== Error handling
+
+[source,ruby]
+----
+begin
+  svg = Postsvg.convert(ps_content)
+rescue Postsvg::ParseError => e
+  puts "Parse error: #{e.message}"
+rescue Postsvg::ConversionError => e
+  puts "Conversion error: #{e.message}"
+end
+----
+
+== Performance Considerations
+
+=== Memory usage
+
+The converter maintains the entire graphics state in memory. Large PostScript
+files with many path operations may consume significant memory.
+
+=== Processing speed
+
+Parslet-based parsing is slower than hand-written parsers but provides better
+error handling and maintainability.
+
+For batch conversion of many files, consider parallel processing.
+
+=== Output size
+
+SVG output may be larger than the original PostScript for files with:
+
+* Many small line segments
+* Complex curves converted to multiple segments
+* Repeated path operations
+
+== Future Enhancements
+
+=== Planned features
+
+* Complete arc implementation using SVG arc commands
+* Text rendering support
+* Clipping path support
+* Dash pattern support
+* Better procedure handling
+
+=== Architectural improvements
+
+* Incremental SVG generation to reduce memory usage
+* Optional path simplification
+* Caching of repeated patterns
+* Better error recovery
+
+== Contributing
+
+When contributing to Postsvg:
+
+1. Follow Ribose Ruby coding standards
+2. Add tests for new operators
+3. Update this documentation
+4. Ensure all tests pass: `bundle exec rspec`
+5. Run linter: `bundle exec rubocop`
+
+== See Also
+
+* link:fundamentals.adoc[PostScript Fundamentals]
+* link:svg-mapping.adoc[SVG Mapping]
+* link:../../README.adoc[Postsvg README]
+* link:index.adoc[Back to PostScript Quick Reference]

@@ -1,0 +1,153 @@
+= PostScript Language Quick Reference
+
+== Purpose
+
+This guide provides a comprehensive reference to the PostScript language as
+implemented in the Postsvg library. PostScript is a stack-based, interpreted
+programming language designed for describing vector graphics and page layouts.
+
+Postsvg focuses on the graphics subset of PostScript needed to convert
+PostScript (PS) and Encapsulated PostScript (EPS) files to Scalable Vector
+Graphics (SVG) format.
+
+== Documentation Structure
+
+=== Core Concepts
+
+* link:fundamentals.adoc[Language Fundamentals]
+  - Stack-based execution model
+  - Data types (numbers, strings, names, arrays, procedures)
+  - Coordinate system and units
+  - Syntax rules and comments
+
+* link:graphics-model.adoc[Graphics Model]
+  - Current path concept
+  - Graphics state parameters
+  - Painting model (fill vs stroke)
+  - Transformation matrices
+
+=== Operator Reference
+
+* link:operators/index.adoc[All Operators] - Complete reference
+
+By category:
+
+* link:operators/path-construction.adoc[Path Construction Operators]
+  - `newpath`, `moveto`, `lineto`, `curveto`, `closepath`, `arc`, `arcn`
+
+* link:operators/painting.adoc[Painting Operators]
+  - `stroke`, `fill`, `eofill`, `clip`, `eoclip`
+
+* link:operators/graphics-state.adoc[Graphics State Operators]
+  - `gsave`, `grestore`, `setlinewidth`, `setrgbcolor`, `setgray`,
+    `setlinecap`, `setlinejoin`, `setmiterlimit`, `setdash`
+
+* link:operators/transformations.adoc[Transformation Operators]
+  - `translate`, `scale`, `rotate`, `concat`, `matrix`, `currentmatrix`,
+    `setmatrix`
+
+* link:operators/stack-manipulation.adoc[Stack Manipulation Operators]
+  - `dup`, `pop`, `exch`, `roll`, `copy`, `clear`, `count`, `index`
+
+* link:operators/arithmetic.adoc[Arithmetic Operators]
+  - `add`, `sub`, `mul`, `div`, `mod`, `abs`, `neg`, `sqrt`, `sin`, `cos`
+
+* link:operators/control-flow.adoc[Control Flow Operators]
+  - `if`, `ifelse`, `for`, `repeat`, `loop`, `exit`, `forall`
+
+* link:operators/dictionary.adoc[Dictionary Operators]
+  - `def`, `dict`, `begin`, `end`, `load`, `store`
+
+=== Conversion Guide
+
+* link:svg-mapping.adoc[PostScript to SVG Mapping]
+  - Coordinate system conversion
+  - Path data conversion
+  - Color mapping
+  - Transformation matrices
+
+* link:implementation-notes.adoc[Postsvg Implementation Notes]
+  - Supported features
+  - Current limitations
+  - Architecture overview
+  - Testing approach
+
+== Quick Start Examples
+
+=== Drawing a rectangle
+
+[example]
+====
+[source,postscript]
+----
+newpath              % Initialize empty path
+50 50 moveto         % Start at bottom-left corner
+150 50 lineto        % Draw to bottom-right
+150 150 lineto       % Draw to top-right
+50 150 lineto        % Draw to top-left
+closepath            % Close the path
+0 0 0 setrgbcolor    % Set color to black
+stroke               % Render the outline
+----
+
+This creates a 100x100 point rectangle starting at coordinates (50, 50).
+====
+
+=== Drawing a filled circle
+
+[example]
+====
+[source,postscript]
+----
+newpath              % Initialize empty path
+100 100 50 0 360 arc % Circle at (100,100) radius 50
+0.5 0.5 0.5 setrgbcolor  % Set gray fill color
+fill                 % Fill the circle
+----
+
+The `arc` operator draws a circular arc from 0 to 360 degrees (a full circle)
+centered at (100, 100) with radius 50.
+====
+
+=== Using transformations
+
+[example]
+====
+[source,postscript]
+----
+gsave                % Save current graphics state
+100 100 translate    % Move origin to (100, 100)
+45 rotate            % Rotate 45 degrees
+newpath
+0 0 moveto           % Now at rotated origin
+50 0 lineto          % Draw 50 units right
+stroke
+grestore             % Restore original state
+----
+
+Transformations affect all subsequent drawing operations until the graphics
+state is restored.
+====
+
+== Notation Conventions
+
+Throughout this documentation:
+
+* `x y operator` - Stack notation shows operands before operator
+* `--` - Represents empty stack or no return value
+* `→` - Shows stack transformation (before → after)
+* Comments use `%` character
+
+Stack effect notation example:
+
+[source]
+----
+num1 num2 add  →  sum
+----
+
+This means `add` consumes two numbers from the stack and pushes their sum.
+
+== See Also
+
+* link:../POSTSCRIPT.adoc[Back to main PostScript reference]
+* link:../../README.adoc[Postsvg README]

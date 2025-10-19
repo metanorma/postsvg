@@ -1,0 +1,374 @@
+= Stack Manipulation Operators
+
+== General
+
+Stack manipulation operators work with the operand stack, allowing you to
+rearrange, duplicate, and remove stack elements. These are essential for
+managing data flow in PostScript programs.
+
+The operand stack is a Last-In-First-Out (LIFO) data structure that holds
+operands for operators.
+
+[[dup]]
+== dup
+
+=== General
+
+The `dup` operator duplicates the top element of the stack.
+
+=== Syntax
+
+[source,postscript]
+----
+any dup <1> <2>
+----
+<1> Element to duplicate
+<2> Operator that duplicates top element
+
+Where,
+
+`any`:: Any object on the stack
+
+Stack effect: `any -- any any`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+5 dup mul              % Square a number: [5 5] → [25]
+----
+
+Duplicates 5, then multiplies: 5 × 5 = 25.
+====
+
+[example]
+====
+[source,postscript]
+----
+100 dup dup            % [100 100 100]
+3 1 roll               % Rearrange if needed
+add add                % Sum all three: 300
+----
+
+`dup` can be used multiple times to create multiple copies.
+====
+
+[[pop]]
+== pop
+
+=== General
+
+The `pop` operator removes and discards the top element from the stack.
+
+=== Syntax
+
+[source,postscript]
+----
+any pop <1> <2>
+----
+<1> Element to discard
+<2> Operator that removes top element
+
+Where,
+
+`any`:: Any object to discard
+
+Stack effect: `any -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+5 10 15 pop            % [5 10] - 15 discarded
+add                    % [15]
+----
+
+Removes unwanted values from the stack.
+====
+
+[[exch]]
+== exch
+
+=== General
+
+The `exch` operator exchanges the positions of the top two stack elements.
+
+=== Syntax
+
+[source,postscript]
+----
+any1 any2 exch <1> <2> <3>
+----
+<1> First element
+<2> Second element
+<3> Operator that exchanges them
+
+Where,
+
+`any1, any2`:: Any two objects on stack
+
+Stack effect: `any1 any2 -- any2 any1`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+10 5 exch div          % [10 5] → [5 10] → [2]
+----
+
+Exchanges operands for division: 10 ÷ 5 = 2.
+====
+
+[example]
+====
+[source,postscript]
+----
+3 4 exch sub           % 4 - 3 = 1
+----
+
+Reverses subtraction order.
+====
+
+[[roll]]
+== roll
+
+=== General
+
+The `roll` operator rotates the top n elements of the stack by j positions.
+Positive j rolls elements up (toward top), negative j rolls down.
+
+=== Syntax
+
+[source,postscript]
+----
+any1 ... anyn n j roll <1> <2> <3>
+----
+<1> Number of elements to roll
+<2> Number of positions to roll
+<3> Operator that performs roll
+
+Where,
+
+`n`:: Number of elements to roll (integer)
+`j`:: Number of positions (integer, positive=up, negative=down)
+
+Stack effect: `any1 ... anyn n j -- anyn any1 ... anyn-1` (for j=1)
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+1 2 3 3 1 roll         % [2 3 1] - roll up once
+----
+
+Moves bottom element to top.
+====
+
+[example]
+====
+[source,postscript]
+----
+1 2 3 3 -1 roll        % [3 1 2] - roll down once
+----
+
+Moves top element to bottom.
+====
+
+[[copy]]
+== copy
+
+=== General
+
+The `copy` operator duplicates the top n elements of the stack.
+
+=== Syntax
+
+[source,postscript]
+----
+any1 ... anyn n copy <1> <2>
+----
+<1> Number of elements to copy
+<2> Operator that copies elements
+
+Where,
+
+`n`:: Number of elements to duplicate (integer)
+
+Stack effect: `any1 ... anyn n -- any1 ... anyn any1 ... anyn`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+10 20 30 3 copy        % [10 20 30 10 20 30]
+----
+
+Copies top 3 elements.
+====
+
+[[clear]]
+== clear
+
+=== General
+
+The `clear` operator removes all elements from the operand stack.
+
+=== Syntax
+
+[source,postscript]
+----
+clear <1>
+----
+<1> Operator that clears stack
+
+Where,
+
+Stack effect: `any... -- ` (removes everything)
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+1 2 3 4 5 clear        % [] - stack now empty
+----
+
+Useful for recovering from errors or resetting state.
+====
+
+[[count]]
+== count
+
+=== General
+
+The `count` operator pushes the number of elements currently on the operand
+stack.
+
+=== Syntax
+
+[source,postscript]
+----
+count <1>
+----
+<1> Operator that counts stack elements
+
+Where,
+
+Stack effect: `-- n` (n is number of elements)
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+1 2 3 count            % [1 2 3 3] - 3 elements
+----
+
+Returns stack depth.
+====
+
+[[index]]
+== index
+
+=== General
+
+The `index` operator duplicates the nth element from the top of the stack,
+where 0 is the top element.
+
+=== Syntax
+
+[source,postscript]
+----
+anyn ... any0 n index <1> <2>
+----
+<1> Index of element to copy (0=top)
+<2> Operator that copies indexed element
+
+Where,
+
+`n`:: Index from top (integer, 0=top element)
+
+Stack effect: `anyn ... any0 n -- anyn ... any0 anyn`
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+10 20 30 0 index       % [10 20 30 30] - copy top
+10 20 30 2 index       % [10 20 30 10] - copy 3rd from top
+----
+
+Access elements deep in the stack without removing them.
+====
+
+== Common Stack Patterns
+
+=== Swapping operands
+
+[example]
+====
+[source,postscript]
+----
+% Wrong order for subtraction
+5 10 sub               % -5 (10 - 5)
+
+% Correct order
+5 10 exch sub          % 5 (5 - 10... wait, no)
+10 5 sub               % 5 (10 - 5)
+----
+
+Use `exch` to fix operand order.
+====
+
+=== Duplicating for reuse
+
+[example]
+====
+[source,postscript]
+----
+% Calculate x² + 2x
+5 dup dup mul          % x² on stack: [25]
+exch 2 mul add         % 2x + x²: [25 10] → [35]
+----
+
+`dup` preserves values needed multiple times.
+====
+
+=== Cleaning up after operations
+
+[example]
+====
+[source,postscript]
+----
+% Some operation leaves extra values
+10 20 30 40 50         % [10 20 30 40 50]
+% Only need top 2
+3 -1 roll pop          % Remove 3rd from top
+pop                    % Remove another
+% Now have [10 50]
+----
+
+Stack manipulation for cleanup.
+====
+
+== See Also
+
+* link:../fundamentals.adoc#stack-based-execution-model[Stack Execution] -
+  How the stack works
+* link:arithmetic.adoc[Arithmetic Operators] - Using stack for calculations
+* link:control-flow.adoc[Control Flow] - Stack in loops and conditionals
+* link:index.adoc[Back to Operator Reference]

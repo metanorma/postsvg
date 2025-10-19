@@ -1,0 +1,553 @@
+= Path Construction Operators
+
+== General
+
+Path construction operators build geometric shapes by defining sequences of
+connected and disconnected line and curve segments. These operators modify the
+current path in the graphics state without producing any visible output until
+a painting operator is executed.
+
+All path construction operations work in the current user space coordinate
+system, which may be transformed by the current transformation matrix (CTM).
+
+[[newpath]]
+== newpath
+
+=== General
+
+The `newpath` operator initializes a new empty current path, discarding any
+existing path. This is typically the first operation when beginning to
+construct a new shape.
+
+=== Syntax
+
+[source,postscript]
+----
+newpath <1>
+----
+<1> Initialize empty path
+
+Where,
+
+Stack effect: `-- ` (no arguments, no return values)
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath              % Clear any existing path
+100 100 moveto       % Begin constructing new path
+----
+
+Always call `newpath` before starting a new shape to ensure no leftover path
+segments from previous operations.
+====
+
+[[moveto]]
+== moveto
+
+=== General
+
+The `moveto` operator begins a new subpath at the specified coordinates (x, y),
+establishing the current point without drawing any visible marks. If a current
+point already exists, `moveto` starts a disconnected subpath.
+
+=== Syntax
+
+[source,postscript]
+----
+x y moveto <1> <2> <3>
+----
+<1> X-coordinate for new current point (number)
+<2> Y-coordinate for new current point (number)
+<3> Operator that consumes x and y from stack
+
+Where,
+
+`x`:: X-coordinate in user space (number)
+`y`:: Y-coordinate in user space (number)
+
+Stack effect: `x y -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+50 50 moveto         % Move to point (50, 50)
+150 50 lineto        % Draw line from (50, 50) to (150, 50)
+----
+
+The `moveto` establishes the starting point for the line drawn by `lineto`.
+====
+
+[example]
+====
+[source,postscript]
+----
+newpath
+10 10 moveto         % First subpath starts at (10, 10)
+90 10 lineto
+90 90 lineto
+closepath
+
+20 20 moveto         % Second disconnected subpath at (20, 20)
+80 20 lineto
+80 80 lineto
+closepath
+----
+
+Multiple `moveto` operations create disconnected subpaths within the same path.
+====
+
+[[rmoveto]]
+== rmoveto
+
+=== General
+
+The `rmoveto` operator is similar to `moveto` but uses relative coordinates.
+It adds the specified offsets (dx, dy) to the current point to determine the
+new current point location.
+
+=== Syntax
+
+[source,postscript]
+----
+dx dy rmoveto <1> <2> <3>
+----
+<1> X-offset from current point (number)
+<2> Y-offset from current point (number)
+<3> Operator that consumes dx and dy from stack
+
+Where,
+
+`dx`:: X-offset relative to current point (number)
+`dy`:: Y-offset relative to current point (number)
+
+Stack effect: `dx dy -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+100 100 moveto       % Absolute position
+50 0 rmoveto         % Move 50 units right, now at (150, 100)
+0 50 rmoveto         % Move 50 units up, now at (150, 150)
+----
+
+Relative movements are useful for drawing shapes where only the offsets are
+known, not absolute coordinates.
+====
+
+[[lineto]]
+== lineto
+
+=== General
+
+The `lineto` operator appends a straight line segment from the current point
+to the specified coordinates (x, y), which becomes the new current point.
+
+=== Syntax
+
+[source,postscript]
+----
+x y lineto <1> <2> <3>
+----
+<1> X-coordinate of line endpoint (number)
+<2> Y-coordinate of line endpoint (number)
+<3> Operator that appends line segment
+
+Where,
+
+`x`:: X-coordinate of endpoint in user space (number)
+`y`:: Y-coordinate of endpoint in user space (number)
+
+Stack effect: `x y -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+10 10 moveto         % Start at (10, 10)
+90 10 lineto         % Draw horizontal line to (90, 10)
+90 90 lineto         % Draw vertical line to (90, 90)
+10 90 lineto         % Draw horizontal line to (10, 90)
+closepath            % Close back to start
+stroke               % Render the square
+----
+
+Creates a square outline using four line segments.
+====
+
+[[rlineto]]
+== rlineto
+
+=== General
+
+The `rlineto` operator appends a straight line segment from the current point
+by the specified offsets (dx, dy). The endpoint becomes the new current point.
+
+=== Syntax
+
+[source,postscript]
+----
+dx dy rlineto <1> <2> <3>
+----
+<1> X-offset for line endpoint (number)
+<2> Y-offset for line endpoint (number)
+<3> Operator that appends relative line
+
+Where,
+
+`dx`:: X-offset from current point (number)
+`dy`:: Y-offset from current point (number)
+
+Stack effect: `dx dy -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+50 50 moveto         % Start at (50, 50)
+100 0 rlineto        % Draw 100 units right
+0 100 rlineto        % Draw 100 units up
+-100 0 rlineto       % Draw 100 units left
+closepath            % Close the square
+----
+
+Using relative coordinates makes it easy to draw regular shapes.
+====
+
+[[curveto]]
+== curveto
+
+=== General
+
+The `curveto` operator appends a cubic Bézier curve segment from the current
+point to (x3, y3), using (x1, y1) and (x2, y2) as control points. The endpoint
+(x3, y3) becomes the new current point.
+
+Cubic Bézier curves provide smooth, controllable curves essential for vector
+graphics.
+
+=== Syntax
+
+[source,postscript]
+----
+x1 y1 x2 y2 x3 y3 curveto <1> <2> <3> <4> <5> <6> <7>
+----
+<1> X-coordinate of first control point
+<2> Y-coordinate of first control point
+<3> X-coordinate of second control point
+<4> Y-coordinate of second control point
+<5> X-coordinate of curve endpoint
+<6> Y-coordinate of curve endpoint
+<7> Operator that appends Bézier curve
+
+Where,
+
+`x1, y1`:: First control point coordinates (numbers)
+`x2, y2`:: Second control point coordinates (numbers)
+`x3, y3`:: Curve endpoint coordinates (numbers)
+
+Stack effect: `x1 y1 x2 y2 x3 y3 -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+50 50 moveto                    % Start point
+50 150 150 150 150 50 curveto   % S-curve
+stroke
+----
+
+Creates an S-shaped curve. The control points pull the curve in their
+directions.
+====
+
+[example]
+====
+[source,postscript]
+----
+newpath
+100 100 moveto                  % Start at center
+150 50 200 100 200 150 curveto  % First curve
+200 200 150 250 100 250 curveto % Second curve
+closepath
+fill
+----
+
+Combines multiple curves to create complex shapes.
+====
+
+[[rcurveto]]
+== rcurveto
+
+=== General
+
+The `rcurveto` operator is similar to `curveto` but uses relative coordinates
+for all three point pairs (control points and endpoint).
+
+=== Syntax
+
+[source,postscript]
+----
+dx1 dy1 dx2 dy2 dx3 dy3 rcurveto
+----
+
+Where,
+
+`dx1, dy1`:: First control point offset from current point
+`dx2, dy2`:: Second control point offset from current point
+`dx3, dy3`:: Endpoint offset from current point
+
+Stack effect: `dx1 dy1 dx2 dy2 dx3 dy3 -- `
+
+[[arc]]
+== arc
+
+=== General
+
+The `arc` operator appends a counterclockwise circular arc to the current path.
+The arc is centered at (x, y) with the specified radius, sweeping from angle1
+to angle2 (measured in degrees).
+
+If there is a current point, `arc` draws a straight line from the current point
+to the arc's starting point before drawing the arc.
+
+=== Syntax
+
+[source,postscript]
+----
+x y r angle1 angle2 arc <1> <2> <3> <4> <5> <6>
+----
+<1> X-coordinate of arc center
+<2> Y-coordinate of arc center
+<3> Radius of arc
+<4> Starting angle in degrees
+<5> Ending angle in degrees
+<6> Operator that appends arc
+
+Where,
+
+`x`:: X-coordinate of center point (number)
+`y`:: Y-coordinate of center point (number)
+`r`:: Radius of the arc (number, must be positive)
+`angle1`:: Starting angle in degrees (number, 0° is 3 o'clock)
+`angle2`:: Ending angle in degrees (number)
+
+Stack effect: `x y r angle1 angle2 -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+100 100 50 0 360 arc    % Full circle
+fill
+----
+
+Draws a complete circle centered at (100, 100) with radius 50.
+====
+
+[example]
+====
+[source,postscript]
+----
+newpath
+100 100 50 0 180 arc    % Semicircle (top half)
+closepath
+fill
+----
+
+Draws the upper half of a circle (0° to 180°).
+====
+
+[example]
+====
+[source,postscript]
+----
+newpath
+100 100 moveto          % Start at center
+100 100 50 45 135 arc   % Quarter circle
+closepath
+fill
+----
+
+Creates a pie slice from 45° to 135° (90° wedge).
+====
+
+[[arcn]]
+== arcn
+
+=== General
+
+The `arcn` operator is identical to `arc` except it draws the arc clockwise
+instead of counterclockwise.
+
+=== Syntax
+
+[source,postscript]
+----
+x y r angle1 angle2 arcn
+----
+
+Where parameters are the same as `arc`, but the arc sweeps clockwise from
+angle1 to angle2.
+
+Stack effect: `x y r angle1 angle2 -- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+100 100 50 180 0 arcn   % Clockwise from 180° to 0°
+closepath               % Creates bottom semicircle
+fill
+----
+
+Draws the lower half of a circle using clockwise direction.
+====
+
+[[closepath]]
+== closepath
+
+=== General
+
+The `closepath` operator closes the current subpath by appending a straight
+line segment from the current point back to the subpath's starting point. This
+is essential for creating closed shapes.
+
+After closing, the current point is set to the subpath's starting point.
+
+=== Syntax
+
+[source,postscript]
+----
+closepath <1>
+----
+<1> Operator that closes current subpath
+
+Where,
+
+Stack effect: `-- `
+
+=== Examples
+
+[example]
+====
+[source,postscript]
+----
+newpath
+10 10 moveto
+90 10 lineto
+90 90 lineto
+10 90 lineto
+closepath               % Closes back to (10, 10)
+stroke
+----
+
+Creates a closed square. The `closepath` adds the final edge from (10, 90)
+back to (10, 10).
+====
+
+[example]
+====
+[source,postscript]
+----
+newpath
+50 50 moveto
+150 50 lineto
+100 150 lineto
+% Don't close the path
+stroke
+----
+
+Without `closepath`, the triangle remains open - the line from (100, 150) back
+to (50, 50) is not drawn.
+====
+
+== Path Construction Workflow
+
+=== Typical pattern
+
+[example]
+====
+[source,postscript]
+----
+% 1. Initialize new path
+newpath
+
+% 2. Set starting point
+x y moveto
+
+% 3. Add path segments
+x1 y1 lineto
+x2 y2 lineto
+% ... more segments
+
+% 4. Close if desired
+closepath
+
+% 5. Paint the path
+stroke  % or fill
+----
+
+This pattern is used for most shape construction in PostScript.
+====
+
+=== Complex paths
+
+[example]
+====
+[source,postscript]
+----
+newpath
+% Outer rectangle
+0 0 moveto
+200 0 lineto
+200 200 lineto
+0 200 lineto
+closepath
+
+% Inner hole
+50 50 moveto
+150 50 lineto
+150 150 lineto
+50 150 lineto
+closepath
+
+% Fill creates a frame (outer filled, inner hollow)
+fill
+----
+
+Multiple closed subpaths can create shapes with holes.
+====
+
+== See Also
+
+* link:painting.adoc[Painting Operators] - Rendering paths with stroke and fill
+* link:../graphics-model.adoc#current-path[Current Path] - Path concepts
+* link:transformations.adoc[Transformations] - Coordinate transformations
+* link:index.adoc[Back to Operator Reference]
