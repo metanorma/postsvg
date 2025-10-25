@@ -1,0 +1,86 @@
+# Lychee link checker configuration for Postsvg documentation
+# https://lychee.cli.rs/
+#
+# This configuration is optimized for checking internal documentation links.
+# External URLs are excluded by default to avoid false positives from
+# anti-bot measures and rate limiting.
+
+# Base configuration
+max_redirects = 10
+max_retries = 3
+timeout = 20
+
+# Check files matching these patterns
+include = [
+    "docs/**/*.adoc",
+    "README.adoc"
+]
+
+# Exclude certain patterns from checking (regex patterns)
+exclude = [
+    # Exclude generated/temporary files
+    "docs/docs/.*",
+    ".*/node_modules/.*",
+    ".*/.git/.*"
+]
+
+# Exclude certain link patterns
+exclude_link_local = false
+exclude_all_private = false
+exclude_mail = false
+
+# Accept status codes as valid
+accept = [
+    200, 201, 202, 203, 204, 205, 206,  # 2xx success
+    300, 301, 302, 303, 307, 308,  # 3xx redirects
+    429  # Rate limit - acceptable for external links
+]
+
+# Include fragments in link validation (e.g., #section-name)
+include_fragments = true
+
+# Follow HTTP redirects
+follow_redirects = true
+
+# Check for broken fragments (anchor links)
+check_fragments = true
+
+# Retry broken links before reporting
+retry_broken = true
+
+# Cache successful link checks to speed up repeated runs
+cache = true
+
+# User agent string for HTTP requests
+user_agent = "lychee/postsvg-docs"
+
+# HTTP method for checking links
+method = "get"
+
+# Headers to send with requests
+headers = [
+    "accept=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+]
+
+# Base URL for relative links (when checking outside of workspace context)
+# base = "https://metanorma.github.io/postsvg/"
+
+# Skip checking SSL certificates (not recommended for production)
+insecure = false
+
+# Maximum number of concurrent network requests
+max_concurrency = 8
+
+# Remap URLs (useful for local development or changed URLs)
+# remap = ["https://old-url.com https://new-url.com"]
+
+# Custom glob patterns for AsciiDoc links
+# AsciiDoc uses link:path[text] syntax
+# Lychee should automatically detect these, but we ensure all .adoc files are checked
+
+# Output format (compact, detailed, json, markdown)
+# This can be overridden via CLI
+format = "detailed"
+
+# Exclude specific domains that may have anti-bot measures
+# exclude_path can be used for this purpose if needed

@@ -1,0 +1,1284 @@
+= PathBuilder Class
+:page-nav_order: 8
+:page-parent: API Reference
+
+== Purpose
+
+The [`PathBuilder`](../../lib/postsvg/path_builder.rb:7) class constructs SVG path data strings from PostScript path operations. It provides a fluent interface for building complex SVG paths through incremental commands while maintaining proper formatting and coordinate tracking.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:svg-generator.adoc[SvgGenerator Class]
+* link:matrix.adoc[Matrix Class]
+* link:interpreter.adoc[Interpreter Class]
+* link:../architecture.adoc[Architecture Overview]
+
+== Concepts
+
+**SVG Path Data**:: A string representation of shapes using commands like `M` (moveto), `L` (lineto), `C` (curveto), and `Z` (closepath).
+
+**Current Point**:: The position of the drawing cursor after the last path command, used as the starting point for the next command.
+
+**Absolute vs Relative Commands**:: Absolute commands use fixed coordinates, while relative commands use offsets from the current point.
+
+**Path Segment**:: An individual drawing command (move, line, curve, or close) that forms part of a complete path.
+
+**Subpath**:: A continuous sequence of path segments that may be disconnected from other subpaths in the same path element.
+
+== Class Overview
+
+The [`PathBuilder`](../../lib/postsvg/path_builder.rb:7) class is defined in [`lib/postsvg/path_builder.rb`](../../lib/postsvg/path_builder.rb:1).
+
+**Responsibilities:**
+
+* Build SVG path data strings incrementally
+* Track current drawing position
+* Provide both absolute and relative path commands
+* Format coordinates for clean SVG output
+* Support path introspection and manipulation
+* Enable path cloning and resetting
+
+**Dependencies:**
+
+* [`Matrix`](../../lib/postsvg/matrix.rb:5) - For coordinate transformations (imported but deprecated in favor of direct coordinate handling)
+
+**Design Characteristics:**
+
+* Fluent interface pattern for method chaining
+* Stateful coordinate tracking
+* Immutable path string parts for reliability
+* Clean numeric formatting
+
+== Class Methods
+
+=== new
+
+Create a new PathBuilder instance.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new <1>
+----
+<1> Initialize an empty path builder
+
+**Returns:**
+
+New `PathBuilder` instance with:
+* Empty path parts array
+* Initial position at (0, 0)
+* No last command
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:10-15`](../../lib/postsvg/path_builder.rb:10)
+
+.Create path builder
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Create builder
+builder = Postsvg::PathBuilder.new
+
+# Builder is ready to accept path commands
+# Current position: (0, 0)
+# Path data: "" (empty)
+----
+====
+
+== Instance Methods
+
+=== move_to
+
+Move to an absolute position without drawing.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder.move_to(x, y) <1>
+----
+<1> Move drawing cursor to absolute coordinates
+
+**Where:**
+
+`x`:: X-coordinate in user units (Integer or Float)
+
+`y`:: Y-coordinate in user units (Integer or Float)
+
+**Returns:**
+
+`nil` (modifies internal state)
+
+**Side Effects:**
+
+* Updates `@current_x` and `@current_y`
+* Sets `@last_command` to `:move`
+* Appends `"M x y"` to path parts
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:21-26`](../../lib/postsvg/path_builder.rb:21)
+
+.Move to absolute position
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+builder.move_to(100, 50)
+puts builder.to_path  # → "M 100 50"
+
+# Current position is now (100, 50)
+----
+====
+
+.Start new subpath
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+# First subpath
+builder.move_to(10, 10)
+builder.line_to(90, 10)
+builder.line_to(90, 90)
+builder.close
+
+# Second subpath
+builder.move_to(20, 20)
+builder.line_to(80, 20)
+builder.line_to(80, 80)
+builder.close
+
+puts builder.to_path
+# → "M 10 10 L 90 10 L 90 90 Z M 20 20 L 80 20 L 80 80 Z"
+----
+====
+
+=== move_to_rel
+
+Move to a relative position without drawing.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder.move_to_rel(dx, dy) <1>
+----
+<1> Move cursor relative to current position
+
+**Where:**
+
+`dx`:: X-offset from current position (Integer or Float)
+
+`dy`:: Y-offset from current position (Integer or Float)
+
+**Returns:**
+
+`nil` (modifies internal state)
+
+**Side Effects:**
+
+* Sets `@last_command` to `:move`
+* Appends `"m dx dy"` to path parts
+* Does NOT update `@current_x` and `@current_y` (relies on SVG to track)
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:28-31`](../../lib/postsvg/path_builder.rb:28)
+
+.Relative move
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+builder.move_to(50, 50)    # Absolute: (50, 50)
+builder.line_to(100, 50)   # Absolute: (100, 50)
+builder.move_to_rel(0, 50) # Relative: +50 in y
+
+puts builder.to_path
+# → "M 50 50 L 100 50 m 0 50"
+----
+====
+
+=== line_to
+
+Draw a line to an absolute position.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder.line_to(x, y) <1>
+----
+<1> Draw line from current position to absolute coordinates
+
+**Where:**
+
+`x`:: Target X-coordinate in user units (Integer or Float)
+
+`y`:: Target Y-coordinate in user units (Integer or Float)
+
+**Returns:**
+
+`nil` (modifies internal state)
+
+**Side Effects:**
+
+* Updates `@current_x` and `@current_y` to target position
+* Sets `@last_command` to `:line`
+* Appends `"L x y"` to path parts
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:33-38`](../../lib/postsvg/path_builder.rb:33)
+
+.Draw simple line
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+builder.move_to(0, 0)
+builder.line_to(100, 0)
+builder.line_to(100, 100)
+
+puts builder.to_path
+# → "M 0 0 L 100 0 L 100 100"
+----
+====
+
+.Draw polyline
+[example]
+====
+[source,ruby]
+----
+points = [[10, 10], [50, 30], [90, 10], [90, 90], [10, 90]]
+
+builder = Postsvg::PathBuilder.new
+builder.move_to(*points.first)
+
+points[1..-1].each do |x, y|
+  builder.line_to(x, y)
+end
+
+puts builder.to_path
+# → "M 10 10 L 50 30 L 90 10 L 90 90 L 10 90"
+----
+====
+
+=== line_to_rel
+
+Draw a line to a relative position.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder.line_to_rel(dx, dy) <1>
+----
+<1> Draw line using relative offset
+
+**Where:**
+
+`dx`:: X-offset from current position (Integer or Float)
+
+`dy`:: Y-offset from current position (Integer or Float)
+
+**Returns:**
+
+`nil` (modifies internal state)
+
+**Side Effects:**
+
+* Sets `@last_command` to `:line`
+* Appends `"l dx dy"` to path parts
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:40-43`](../../lib/postsvg/path_builder.rb:40)
+
+.Draw with relative coordinates
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+builder.move_to(50, 50)
+builder.line_to_rel(50, 0)   # Right 50
+builder.line_to_rel(0, 50)   # Down 50
+builder.line_to_rel(-50, 0)  # Left 50
+builder.line_to_rel(0, -50)  # Up 50
+
+puts builder.to_path
+# → "M 50 50 l 50 0 l 0 50 l -50 0 l 0 -50"
+# Creates a square using relative coordinates
+----
+====
+
+=== curve_to
+
+Draw a cubic Bézier curve to an absolute position.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder.curve_to(x1, y1, x2, y2, x, y) <1>
+----
+<1> Draw curve with two control points and end point
+
+**Where:**
+
+`x1`, `y1`:: First control point coordinates (Integer or Float)
+
+`x2`, `y2`:: Second control point coordinates (Integer or Float)
+
+`x`, `y`:: End point coordinates (Integer or Float)
+
+**Returns:**
+
+`nil` (modifies internal state)
+
+**Side Effects:**
+
+* Updates `@current_x` and `@current_y` to end point (x, y)
+* Sets `@last_command` to `:curve`
+* Appends `"C x1 y1 x2 y2 x y"` to path parts
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:45-52`](../../lib/postsvg/path_builder.rb:45)
+
+.Draw simple curve
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+# S-curve
+builder.move_to(10, 80)
+builder.curve_to(
+  40, 10,   # First control point
+  60, 10,   # Second control point
+  90, 80    # End point
+)
+
+puts builder.to_path
+# → "M 10 80 C 40 10 60 10 90 80"
+----
+====
+
+.Draw smooth wave
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+builder.move_to(0, 50)
+
+# Multiple connected curves for wave pattern
+[[20, 20, 40, 20, 50, 50],
+ [60, 80, 80, 80, 100, 50],
+ [120, 20, 140, 20, 150, 50]].each do |params|
+  builder.curve_to(*params)
+end
+
+puts builder.to_path
+# → "M 0 50 C 20 20 40 20 50 50 C 60 80 80 80 100 50 C 120 20 140 20 150 50"
+----
+====
+
+=== curve_to_rel
+
+Draw a cubic Bézier curve using relative coordinates.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder.curve_to_rel(dx1, dy1, dx2, dy2, dx, dy) <1>
+----
+<1> Draw curve with relative control points and end point
+
+**Where:**
+
+`dx1`, `dy1`:: First control point offset from current position
+
+`dx2`, `dy2`:: Second control point offset from current position
+
+`dx`, `dy`:: End point offset from current position
+
+**Returns:**
+
+`nil` (modifies internal state)
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:54-59`](../../lib/postsvg/path_builder.rb:54)
+
+.Relative curve drawing
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+builder.move_to(50, 50)
+
+# Draw curve relative to current position
+builder.curve_to_rel(
+  10, -20,  # First control: (60, 30)
+  20, -20,  # Second control: (70, 30)
+  30, 0     # End: (80, 50)
+)
+
+puts builder.to_path
+# → "M 50 50 c 10 -20 20 -20 30 0"
+----
+====
+
+=== ellipse_to
+
+Draw an elliptical arc to an absolute position.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder.ellipse_to(rx, ry, rotation, large_arc, sweep, x, y) <1>
+----
+<1> Draw elliptical arc with specified parameters
+
+**Where:**
+
+`rx`:: X-radius of the ellipse (Float)
+
+`ry`:: Y-radius of the ellipse (Float)
+
+`rotation`:: Rotation angle of the ellipse in degrees (Float)
+
+`large_arc`:: Use large arc (0 or 1)
+* `0` - Arc spans ≤ 180°
+* `1` - Arc spans > 180°
+
+`sweep`:: Direction of arc (0 or 1)
+* `0` - Counter-clockwise
+* `1` - Clockwise
+
+`x`, `y`:: End point coordinates (Integer or Float)
+
+**Returns:**
+
+`nil` (modifies internal state)
+
+**Side Effects:**
+
+* Updates `@current_x` and `@current_y` to end point
+* Sets `@last_command` to `:arc`
+* Appends `"A rx ry rotation large_arc sweep x y"` to path parts
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:61-67`](../../lib/postsvg/path_builder.rb:61)
+
+.Draw circular arc
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+# Draw semicircle
+builder.move_to(10, 50)
+builder.ellipse_to(
+  40, 40,  # Radii (same for circle)
+  0,       # No rotation
+  0,       # Small arc
+  1,       # Clockwise
+  90, 50   # End point
+)
+
+puts builder.to_path
+# → "M 10 50 A 40 40 0 0 1 90 50"
+----
+====
+
+.Draw complex arc
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+# Draw rotated elliptical arc
+builder.move_to(100, 100)
+builder.ellipse_to(
+  50, 30,  # Ellipse radii
+  45,      # 45° rotation
+  1,       # Large arc (>180°)
+  0,       # Counter-clockwise
+  200, 200 # End point
+)
+
+puts builder.to_path
+# → "M 100 100 A 50 30 45 1 0 200 200"
+----
+====
+
+=== close
+
+Close the current subpath by drawing a line to the starting point.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder.close <1>
+----
+<1> Close current subpath
+
+**Returns:**
+
+`nil` (modifies internal state)
+
+**Side Effects:**
+
+* Sets `@last_command` to `:close`
+* Appends `"Z"` to path parts
+* Does not update current position (SVG handles this)
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:69-72`](../../lib/postsvg/path_builder.rb:69)
+
+.Close simple shape
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+# Triangle
+builder.move_to(50, 10)
+builder.line_to(90, 90)
+builder.line_to(10, 90)
+builder.close  # Completes triangle
+
+puts builder.to_path
+# → "M 50 10 L 90 90 L 10 90 Z"
+----
+====
+
+.Multiple closed subpaths
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+# First shape
+builder.move_to(10, 10)
+builder.line_to(40, 10)
+builder.line_to(40, 40)
+builder.close
+
+# Second shape
+builder.move_to(60, 60)
+builder.line_to(90, 60)
+builder.line_to(90, 90)
+builder.close
+
+puts builder.to_path
+# → "M 10 10 L 40 10 L 40 40 Z M 60 60 L 90 60 L 90 90 Z"
+----
+====
+
+=== to_path
+
+Convert accumulated path commands to SVG path data string.
+
+**Syntax:**
+
+[source,ruby]
+----
+path_data = builder.to_path <1>
+----
+<1> Generate SVG path data string
+
+**Returns:**
+
+String containing space-separated path commands (e.g., `"M 10 10 L 50 50 Z"`)
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:74-76`](../../lib/postsvg/path_builder.rb:74)
+
+.Generate path data
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+builder.move_to(0, 0)
+builder.line_to(100, 100)
+
+path_data = builder.to_path
+puts path_data  # → "M 0 0 L 100 100"
+
+# Use in SVG
+svg = <<~SVG
+  <svg xmlns="http://www.w3.org/2000/svg">
+    <path d="#{path_data}" stroke="black" fill="none"/>
+  </svg>
+SVG
+----
+====
+
+=== length
+
+Get the number of path command parts.
+
+**Syntax:**
+
+[source,ruby]
+----
+count = builder.length <1>
+----
+<1> Count path parts
+
+**Returns:**
+
+Integer count of path command parts
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:78-80`](../../lib/postsvg/path_builder.rb:78)
+
+.Check path length
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+puts builder.length  # → 0
+
+builder.move_to(10, 10)
+puts builder.length  # → 1
+
+builder.line_to(50, 50)
+puts builder.length  # → 2
+
+builder.line_to(90, 10)
+puts builder.length  # → 3
+----
+====
+
+=== empty?
+
+Check if the path is empty.
+
+**Syntax:**
+
+[source,ruby]
+----
+is_empty = builder.empty? <1>
+----
+<1> Check for empty path
+
+**Returns:**
+
+Boolean (`true` if no path commands, `false` otherwise)
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:82-84`](../../lib/postsvg/path_builder.rb:82)
+
+.Check if empty
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+puts builder.empty?  # → true
+
+builder.move_to(10, 10)
+puts builder.empty?  # → false
+----
+====
+
+=== clear
+
+Clear all path commands and reset state.
+
+**Syntax:**
+
+[source,ruby]
+----
+builder.clear <1>
+----
+<1> Reset path builder to initial state
+
+**Returns:**
+
+`nil`
+
+**Side Effects:**
+
+* Clears `@parts` array
+* Resets `@last_command` to `nil`
+* Resets `@current_x` and `@current_y` to 0.0
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:86-91`](../../lib/postsvg/path_builder.rb:86)
+
+.Clear and reuse builder
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+builder.move_to(10, 10)
+builder.line_to(50, 50)
+
+puts builder.to_path  # → "M 10 10 L 50 50"
+
+# Clear for reuse
+builder.clear
+puts builder.empty?   # → true
+puts builder.to_path  # → ""
+
+# Build new path
+builder.move_to(0, 0)
+builder.line_to(100, 100)
+puts builder.to_path  # → "M 0 0 L 100 100"
+----
+====
+
+=== reset
+
+Create a new PathBuilder instance.
+
+**Syntax:**
+
+[source,ruby]
+----
+new_builder = builder.reset <1>
+----
+<1> Create fresh PathBuilder
+
+**Returns:**
+
+New `PathBuilder` instance (does NOT modify original)
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:93-95`](../../lib/postsvg/path_builder.rb:93)
+
+NOTE: This method creates a NEW instance rather than resetting the current one. Use `clear` to reset the current builder.
+
+.Reset vs Clear
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+builder.move_to(10, 10)
+
+# reset creates NEW instance
+new_builder = builder.reset
+puts builder.to_path      # → "M 10 10" (unchanged)
+puts new_builder.to_path  # → "" (new empty builder)
+
+# clear modifies current instance
+builder.clear
+puts builder.to_path      # → "" (cleared)
+----
+====
+
+=== has_disconnected_subpath?
+
+Check if path has a disconnected subpath.
+
+**Syntax:**
+
+[source,ruby]
+----
+is_disconnected = builder.has_disconnected_subpath? <1>
+----
+<1> Check for disconnected subpath
+
+**Returns:**
+
+Boolean:
+* `true` - Path has data and last command is NOT move
+* `false` - Path is empty OR last command is move
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:98-100`](../../lib/postsvg/path_builder.rb:98)
+
+**Use Case:**
+
+Detect when a new subpath should be started (typically after a paint operation).
+
+.Check for disconnected subpath
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+puts builder.has_disconnected_subpath?  # → false (empty)
+
+builder.move_to(10, 10)
+puts builder.has_disconnected_subpath?  # → false (last is move)
+
+builder.line_to(50, 50)
+puts builder.has_disconnected_subpath?  # → true (has data, last is line)
+
+builder.move_to(100, 100)
+puts builder.has_disconnected_subpath?  # → false (last is move again)
+----
+====
+
+=== has_content?
+
+Check if path has actual drawing commands (not just moveto).
+
+**Syntax:**
+
+[source,ruby]
+----
+has_drawing = builder.has_content? <1>
+----
+<1> Check for meaningful content
+
+**Returns:**
+
+Boolean:
+* `true` - Path has more than one command part
+* `false` - Path is empty or has only one command
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:103-105`](../../lib/postsvg/path_builder.rb:103)
+
+.Check for content
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+puts builder.has_content?  # → false (empty)
+
+builder.move_to(10, 10)
+puts builder.has_content?  # → false (only move)
+
+builder.line_to(50, 50)
+puts builder.has_content?  # → true (has drawing command)
+----
+====
+
+=== current_point
+
+Get the current drawing position.
+
+**Syntax:**
+
+[source,ruby]
+----
+x, y = builder.current_point <1>
+----
+<1> Get current coordinates
+
+**Returns:**
+
+Array `[x, y]` containing current position coordinates (Float)
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:107-109`](../../lib/postsvg/path_builder.rb:107)
+
+.Track current position
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+
+x, y = builder.current_point
+puts "Start: (#{x}, #{y})"  # → "Start: (0.0, 0.0)"
+
+builder.move_to(50, 75)
+x, y = builder.current_point
+puts "After move: (#{x}, #{y})"  # → "After move: (50, 75)"
+
+builder.line_to(100, 125)
+x, y = builder.current_point
+puts "After line: (#{x}, #{y})"  # → "After line: (100, 125)"
+----
+====
+
+=== dup
+
+Create a deep copy of the PathBuilder.
+
+**Syntax:**
+
+[source,ruby]
+----
+copy = builder.dup <1>
+----
+<1> Duplicate path builder
+
+**Returns:**
+
+New `PathBuilder` instance with copied state:
+* Duplicated `@parts` array
+* Copied `@last_command`
+* Copied `@current_x` and `@current_y`
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:111-118`](../../lib/postsvg/path_builder.rb:111)
+
+.Duplicate builder
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+builder.move_to(10, 10)
+builder.line_to(50, 50)
+
+# Create independent copy
+copy = builder.dup
+
+# Modify copy
+copy.line_to(90, 90)
+
+puts builder.to_path  # → "M 10 10 L 50 50"
+puts copy.to_path     # → "M 10 10 L 50 50 L 90 90"
+----
+====
+
+== Attributes
+
+=== parts (read-only)
+
+Access the array of path command parts.
+
+**Syntax:**
+
+[source,ruby]
+----
+parts_array = builder.parts <1>
+----
+<1> Get path parts array
+
+**Returns:**
+
+Array of strings, each representing one path command
+
+**Source:**
+
+[`lib/postsvg/path_builder.rb:8`](../../lib/postsvg/path_builder.rb:8)
+
+.Inspect path parts
+[example]
+====
+[source,ruby]
+----
+builder = Postsvg::PathBuilder.new
+builder.move_to(10, 10)
+builder.line_to(50, 50)
+builder.close
+
+puts builder.parts.inspect
+# → ["M 10 10", "L 50 50", "Z"]
+
+puts builder.parts.join(" ")
+# → "M 10 10 L 50 50 Z" (same as to_path)
+----
+====
+
+== Usage Patterns
+
+=== Pattern 1: Simple Shape Construction
+
+[source,ruby]
+----
+require 'postsvg'
+
+def build_rectangle(x, y, width, height)
+  builder = Postsvg::PathBuilder.new
+
+  builder.move_to(x, y)
+  builder.line_to(x + width, y)
+  builder.line_to(x + width, y + height)
+  builder.line_to(x, y + height)
+  builder.close
+
+  builder.to_path
+end
+
+rect_path = build_rectangle(10, 10, 80, 60)
+puts rect_path  # → "M 10 10 L 90 10 L 90 70 L 10 70 Z"
+----
+
+=== Pattern 2: Reusable Builder
+
+[source,ruby]
+----
+require 'postsvg'
+
+class ShapeBuilder
+  def initialize
+    @builder = Postsvg::PathBuilder.new
+  end
+
+  def add_circle(cx, cy, r, segments = 16)
+    @builder.move_to(cx + r, cy)
+
+    (1..segments).each do |i|
+      angle = (i * 2 * Math::PI) / segments
+      x = cx + r * Math.cos(angle)
+      y = cy + r * Math.sin(angle)
+      @builder.line_to(x, y)
+    end
+
+    @builder.close
+    self  # Enable chaining
+  end
+
+  def to_path
+    @builder.to_path
+  end
+
+  def clear
+    @builder.clear
+    self
+  end
+end
+
+# Usage
+shapes = ShapeBuilder.new
+shapes.add_circle(50, 50, 30)
+puts shapes.to_path
+----
+
+=== Pattern 3: Incremental Path Construction
+
+[source,ruby]
+----
+require 'postsvg'
+
+class IncrementalPath
+  def initialize
+    @builder = Postsvg::PathBuilder.new
+    @started = false
+  end
+
+  def add_point(x, y)
+    if @started
+      @builder.line_to(x, y)
+    else
+      @builder.move_to(x, y)
+      @started = true
+    end
+    self
+  end
+
+  def close_path
+    @builder.close if @started
+    @started = false
+    self
+  end
+
+  def to_path
+    @builder.to_path
+  end
+end
+
+# Usage - build path from data points
+path = IncrementalPath.new
+[[10, 10], [50, 30], [90, 10], [70, 50]].each do |x, y|
+  path.add_point(x, y)
+end
+path.close_path
+
+puts path.to_path
+----
+
+=== Pattern 4: Complex Shape Library
+
+[source,ruby]
+----
+require 'postsvg'
+
+module Shapes
+  def self.star(cx, cy, outer_r, inner_r, points = 5)
+    builder = Postsvg::PathBuilder.new
+
+    points.times do |i|
+      # Outer point
+      angle = (i * 2 * Math::PI) / points - Math::PI / 2
+      x = cx + outer_r * Math.cos(angle)
+      y = cy + outer_r * Math.sin(angle)
+
+      if i == 0
+        builder.move_to(x, y)
+      else
+        builder.line_to(x, y)
+      end
+
+      # Inner point
+      angle += Math::PI / points
+      x = cx + inner_r * Math.cos(angle)
+      y = cy + inner_r * Math.sin(angle)
+      builder.line_to(x, y)
+    end
+
+    builder.close
+    builder.to_path
+  end
+
+  def self.rounded_rectangle(x, y, w, h, r)
+    builder = Postsvg::PathBuilder.new
+
+    builder.move_to(x + r, y)
+    builder.line_to(x + w - r, y)
+    builder.ellipse_to(r, r, 0, 0, 1, x + w, y + r)
+    builder.line_to(x + w, y + h - r)
+    builder.ellipse_to(r, r, 0, 0, 1, x + w - r, y + h)
+    builder.line_to(x + r, y + h)
+    builder.ellipse_to(r, r, 0, 0, 1, x, y + h - r)
+    builder.line_to(x, y + r)
+    builder.ellipse_to(r, r, 0, 0, 1, x + r, y)
+    builder.close
+
+    builder.to_path
+  end
+end
+
+# Usage
+star_path = Shapes.star(100, 100, 50, 25, 5)
+rounded_rect = Shapes.rounded_rectangle(10, 10, 180, 80, 10)
+----
+
+== Thread Safety
+
+The `PathBuilder` class is **not thread-safe** due to mutable internal state. Each thread should have its own instance.
+
+.Correct multi-threaded usage
+[example]
+====
+[source,ruby]
+----
+# Bad: Sharing builder across threads
+builder = Postsvg::PathBuilder.new
+threads = shapes.map do |shape|
+  Thread.new do
+    shape.points.each { |x, y| builder.line_to(x, y) }
+  end
+end
+# RACE CONDITION!
+
+# Good: Each thread creates own builder
+threads = shapes.map do |shape|
+  Thread.new do
+    builder = Postsvg::PathBuilder.new
+    builder.move_to(*shape.points.first)
+    shape.points[1..-1].each { |x, y| builder.line_to(x, y) }
+    builder.to_path
+  end
+end
+
+paths = threads.map(&:value)
+----
+====
+
+== Performance Considerations
+
+**Time Complexity:**
+
+* Adding command: O(1) - appends to array
+* `to_path`: O(n) where n = number of parts (join operation)
+* `dup`: O(n) where n = number of parts (array duplication)
+
+**Space Complexity:**
+
+* Memory: O(n) where n = number of path commands
+* Each command stored as formatted string
+
+**Optimization Tips:**
+
+1. **Reuse builders**: Use `clear` instead of creating new instances
+2. **Minimize to_path calls**: Generate path data only when needed
+3. **Use relative commands**: Can produce shorter path strings
+4. **Avoid unnecessary precision**: num_fmt handles this automatically
+
+.Performance measurement
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+require 'benchmark'
+
+# Test path building performance
+builder = Postsvg::PathBuilder.new
+
+time = Benchmark.measure do
+  1000.times do |i|
+    builder.move_to(i * 10, i * 5)
+    builder.line_to(i * 10 + 50, i * 5 + 50)
+    builder.close
+  end
+end
+
+puts "Built #{builder.length} commands in #{'%.3f' % time.real}s"
+puts "Rate: #{(builder.length / time.real).to_i} commands/sec"
+
+gen_time = Benchmark.measure do
+  @path = builder.to_path
+end
+
+puts "Generated path in #{'%.3f' % gen_time.real}s"
+puts "Path length: #{@path.length} characters"
+----
+====
+
+== Next Steps
+
+* Learn about link:svg-generator.adoc[SvgGenerator] for complete SVG document generation
+* Review link:matrix.adoc[Matrix Class] for coordinate transformations
+* See link:interpreter.adoc[Interpreter] for PostScript execution
+* Check link:../architecture.adoc[Architecture] for system design
+
+== Bibliography
+
+* link:svg-generator.adoc[SvgGenerator Documentation]
+* link:matrix.adoc[Matrix Documentation]
+* link:interpreter.adoc[Interpreter Documentation]
+* link:../architecture.adoc[Architecture Overview]
+* link:https://www.w3.org/TR/SVG2/paths.html[W3C SVG Paths Specification]
+* link:https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorial/Paths[MDN SVG Path Tutorial]

@@ -1,0 +1,937 @@
+= SVG Generation
+:page-nav_order: 5
+:page-parent: Core Concepts
+
+== Purpose
+
+This document explains how Postsvg generates SVG output from interpreted PostScript graphics operations. Understanding the SVG generation process helps when debugging output, optimizing performance, and extending Postsvg's capabilities.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../concepts.adoc[Core Concepts Overview]
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:path-operations.adoc[Path Operations]
+* link:coordinate-systems.adoc[Coordinate Systems]
+
+== Concepts
+
+**SVG Document**:: An XML document containing vector graphics defined by geometric shapes and paths.
+
+**ViewBox**:: The coordinate system and viewport dimensions for SVG content.
+
+**Path Data**:: A string of commands and coordinates defining vector paths in SVG.
+
+**Transform Groups**:: SVG `<g>` elements with transform attributes for coordinate system adjustments.
+
+**Optimization**:: Techniques to reduce SVG file size and improve rendering performance.
+
+== SVG Document Structure
+
+=== Complete SVG Document
+
+Postsvg generates well-formed, standards-compliant SVG documents:
+
+.SVG Document Template
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="WIDTH"
+     height="HEIGHT"
+     viewBox="LLX LLY WIDTH HEIGHT">
+  <defs>
+    <!-- Reusable definitions: patterns, gradients, clip paths -->
+  </defs>
+  <g transform="translate(0 HEIGHT) scale(1 -1)">
+    <!-- Graphics elements with Y-axis flip -->
+  </g>
+</svg>
+----
+
+=== Document Components
+
+**XML Declaration:**
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+----
+
+Identifies the document as XML version 1.0 with UTF-8 encoding.
+
+**SVG Root Element:**
+
+[source,xml]
+----
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="612"
+     height="792"
+     viewBox="0 0 612 792">
+----
+
+**Attributes:**
+
+* `xmlns` - SVG namespace declaration (required)
+* `width` - Physical width in pixels or units
+* `height` - Physical height in pixels or units
+* `viewBox` - User coordinate system (min-x min-y width height)
+
+**Definitions Section:**
+
+[source,xml]
+----
+<defs>
+  <clipPath id="clipPath2">
+    <path d="M 50 50 L 350 50 L 350 350 L 50 350 Z"/>
+  </clipPath>
+  <pattern id="pattern1">...</pattern>
+  <linearGradient id="grad1">...</linearGradient>
+</defs>
+----
+
+Contains reusable graphics elements referenced by other elements.
+
+**Transform Group:**
+
+[source,xml]
+----
+<g transform="translate(0 792) scale(1 -1)">
+  <!-- All path elements go here -->
+</g>
+----
+
+Applies coordinate system transformation to flip Y-axis from PostScript to SVG convention.
+
+== ViewBox Configuration
+
+=== From BoundingBox to ViewBox
+
+The PostScript BoundingBox comment defines the page dimensions:
+
+[source,postscript]
+----
+%%BoundingBox: llx lly urx ury
+----
+
+This converts to SVG viewBox:
+
+.BoundingBox to ViewBox Mapping
+[source]
+----
+PostScript BoundingBox: llx lly urx ury
+                         ↓   ↓   ↓   ↓
+SVG viewBox:            min-x min-y width height
+
+Where:
+  min-x = llx
+  min-y = lly
+  width = urx - llx
+  height = ury - lly
+----
+
+.ViewBox Example
+[example]
+====
+**PostScript:**
+
+[source,postscript]
+----
+%%BoundingBox: 0 0 612 792
+% US Letter page (8.5" × 11" at 72 DPI)
+----
+
+**SVG:**
+
+[source,xml]
+----
+<svg width="612" height="792" viewBox="0 0 612 792">
+----
+
+**Interpretation:**
+
+* Coordinate system starts at (0, 0)
+* Extends 612 units right, 792 units down
+* 1 unit = 1 point = 1/72 inch
+====
+
+=== Non-Zero Origin
+
+When BoundingBox doesn't start at origin:
+
+.Offset BoundingBox
+[example]
+====
+**PostScript:**
+
+[source,postscript]
+----
+%%BoundingBox: 50 50 250 250
+% 200×200 area, offset from origin
+----
+
+**SVG Option 1: Preserve Origin**
+
+[source,xml]
+----
+<svg width="200" height="200" viewBox="50 50 200 200">
+  <!-- Content uses original coordinates (50-250) -->
+</svg>
+----
+
+**SVG Option 2: Normalize to Zero**
+
+[source,xml]
+----
+<svg width="200" height="200" viewBox="0 0 200 200">
+  <g transform="translate(-50 200) scale(1 -1) translate(0 -50)">
+    <!-- Content adjusted to (0-200) range -->
+  </g>
+</svg>
+----
+====
+
+== Coordinate System Transformation
+
+=== The Y-Axis Problem
+
+PostScript and SVG use different Y-axis orientations:
+
+.Coordinate System Comparison
+[source]
+----
+PostScript (Y ↑)              SVG (Y ↓)
+
+    Height ┌───────┐ 0              0 ┌───────┐ 0
+           │   ●   │                  │   ●   │
+         0 └───────┘ Width       Height └───────┘ Width
+
+    Point (100, 150):            Point (100, 150):
+    - 150 units UP               - 150 units DOWN
+    - Near TOP                   - Near BOTTOM
+----
+
+=== The Transform Solution
+
+Postsvg uses a transform group to flip the Y-axis:
+
+[source,xml]
+----
+<g transform="translate(0 HEIGHT) scale(1 -1)">
+  <!-- PostScript graphics here -->
+</g>
+----
+
+**Transformation Steps:**
+
+1. **Translate (0, HEIGHT)** - Move origin to bottom-left
+2. **Scale (1, -1)** - Flip Y-axis (multiply Y by -1)
+
+.Transform Breakdown
+[example]
+====
+Given height = 200:
+
+[source,xml]
+----
+<g transform="translate(0 200) scale(1 -1)">
+----
+
+**Effect on Point (100, 50):**
+
+[source]
+----
+Original SVG: (100, 50)
+After translate(0, 200): (100, 250)
+After scale(1, -1): (100, -250)
+
+But SVG renders this as if Y started at bottom,
+so PostScript (100, 50) appears in correct position!
+----
+====
+
+=== Transform Limitations
+
+The global Y-flip doesn't work for:
+
+* Text (would be upside-down)
+* Images (would be flipped)
+* Patterns (may need special handling)
+
+For these elements, additional transforms may be needed.
+
+== Path Generation
+
+=== From Graphics Operations to SVG Paths
+
+The [`SvgGenerator`](../../lib/postsvg/svg_generator.rb:7) converts path segments to SVG path data.
+
+.Path Generation Flow
+[source]
+----
+PostScript Operations          Graphics State          SVG Path
+────────────────────────────────────────────────────────────────
+newpath                    →   current_path: []
+100 100 moveto             →   [(M 100,100)]
+200 100 lineto             →   [(M 100,100),
+                                (L 200,100)]
+200 200 lineto             →   [(M 100,100),
+                                (L 200,100),
+                                (L 200,200)]
+closepath                  →   [(M 100,100),
+                                (L 200,100),
+                                (L 200,200),
+                                (Z)]
+stroke                     →   Generate SVG      →   <path d="M 100 100
+                                                           L 200 100
+                                                           L 200 200
+                                                           Z"
+                                                        stroke="#000"
+                                                        fill="none"/>
+----
+
+=== SVG Path Data Commands
+
+PostScript path operators map to SVG path data commands:
+
+.Command Mapping
+[source]
+----
+PostScript              SVG         Description
+─────────────────────────────────────────────────────
+moveto x y          →   M x y       Move to absolute position
+rmoveto dx dy       →   m dx dy     Move relative
+lineto x y          →   L x y       Line to absolute position
+rlineto dx dy       →   l dx dy     Line relative
+curveto x1 y1       →   C x1 y1     Cubic Bézier curve
+  x2 y2 x3 y3           x2 y2
+                        x3 y3
+rcurveto ...        →   c ...       Relative cubic curve
+closepath           →   Z           Close path
+----
+
+.Path Data Example
+[example]
+====
+**PostScript:**
+
+[source,postscript]
+----
+newpath
+50 50 moveto
+150 50 lineto
+100 150 lineto
+closepath
+fill
+----
+
+**SVG Path Data:**
+
+[source,xml]
+----
+<path d="M 50 50 L 150 50 L 100 150 Z"
+      fill="#808080"
+      stroke="none"/>
+----
+====
+
+=== Path Data Optimization
+
+The [`PathBuilder`](../../lib/postsvg/path_builder.rb:7) optimizes path data:
+
+**Number Formatting:**
+
+[source,ruby]
+----
+def num_fmt(n)
+  # Remove trailing zeros
+  format("%.3f", n).sub(/\.?0+$/, "")
+end
+
+# Examples:
+# 100.0 → "100"
+# 50.500 → "50.5"
+# 33.333 → "33.333"
+----
+
+**Coordinate Precision:**
+
+* Use 3 decimal places for precision
+* Remove unnecessary trailing zeros
+* Handle negative zero (convert to 0)
+
+.Optimized Path Data
+[example]
+====
+**Before Optimization:**
+
+[source,xml]
+----
+<path d="M 100.000 100.000 L 200.000 100.000 L 200.000 200.000 Z"/>
+----
+
+**After Optimization:**
+
+[source,xml]
+----
+<path d="M 100 100 L 200 100 L 200 200 Z"/>
+----
+
+Saves 27 bytes (31% reduction)!
+====
+
+== Styling and Attributes
+
+=== Stroke Operations
+
+When a path is stroked, generate stroke attributes:
+
+[source,xml]
+----
+<path d="..."
+      fill="none"
+      stroke="#000000"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="miter"
+      stroke-dasharray="5,3"/>
+----
+
+**Stroke Attributes:**
+
+`stroke`:: Stroke color (hex RGB or color name)
+`stroke-width`:: Line thickness in user units
+`stroke-linecap`:: End cap style (butt, round, square)
+`stroke-linejoin`:: Corner join style (miter, round, bevel)
+`stroke-dasharray`:: Dash pattern (comma-separated lengths)
+`stroke-miterlimit`:: Miter limit for sharp corners
+
+.Stroke Example
+[example]
+====
+**PostScript:**
+
+[source,postscript]
+----
+newpath
+50 50 moveto
+350 50 lineto
+5 setlinewidth
+1 setlinecap
+1 setlinejoin
+[10 5] 0 setdash
+1 0 0 setrgbcolor
+stroke
+----
+
+**SVG:**
+
+[source,xml]
+----
+<path d="M 50 50 L 350 50"
+      fill="none"
+      stroke="#FF0000"
+      stroke-width="5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-dasharray="10,5"/>
+----
+====
+
+=== Fill Operations
+
+When a path is filled, generate fill attributes:
+
+[source,xml]
+----
+<path d="..."
+      fill="#808080"
+      stroke="none"/>
+----
+
+**Fill Attributes:**
+
+`fill`:: Fill color (hex RGB or color name)
+`fill-rule`:: Winding rule (nonzero or evenodd)
+`fill-opacity`:: Opacity (0.0 to 1.0)
+
+.Fill Example
+[example]
+====
+**PostScript:**
+
+[source,postscript]
+----
+newpath
+100 100 moveto
+200 100 lineto
+200 200 lineto
+100 200 lineto
+closepath
+0.5 setgray
+fill
+----
+
+**SVG:**
+
+[source,xml]
+----
+<path d="M 100 100 L 200 100 L 200 200 L 100 200 Z"
+      fill="#808080"
+      stroke="none"/>
+----
+====
+
+=== Color Conversion
+
+PostScript colors convert to SVG hex format:
+
+.Color Conversion
+[source]
+----
+PostScript RGB            SVG Hex
+──────────────────────────────────
+1 0 0 setrgbcolor    →   #FF0000 (red)
+0 1 0 setrgbcolor    →   #00FF00 (green)
+0 0 1 setrgbcolor    →   #0000FF (blue)
+0.5 setgray          →   #808080 (50% gray)
+0 setgray            →   #000000 (black)
+1 setgray            →   #FFFFFF (white)
+
+Conversion formula:
+  hex = format("#%02x%02x%02x", r*255, g*255, b*255)
+----
+
+.Color Examples
+[example]
+====
+[source,ruby]
+----
+# Red
+rgb_to_hex(1.0, 0.0, 0.0)  # => "#ff0000"
+
+# Orange
+rgb_to_hex(1.0, 0.5, 0.0)  # => "#ff8000"
+
+# Gray
+rgb_to_hex(0.5, 0.5, 0.5)  # => "#808080"
+
+# Implementation
+def rgb_to_hex(r, g, b)
+  format("#%02x%02x%02x",
+    (r * 255).to_i,
+    (g * 255).to_i,
+    (b * 255).to_i)
+end
+----
+====
+
+== Clipping Paths
+
+=== ClipPath Generation
+
+PostScript clip operations create SVG clipPath definitions:
+
+.ClipPath Generation Flow
+[source]
+----
+PostScript                  SVG
+──────────────────────────────────────────────────
+newpath
+50 50 moveto
+350 50 lineto
+350 350 lineto
+50 350 lineto
+closepath
+clip                    →   <defs>
+newpath                       <clipPath id="clipPath2">
+                                <path d="M 50 50 L 350 50
+                                         L 350 350 L 50 350 Z"/>
+                              </clipPath>
+                            </defs>
+
+% Subsequent drawing
+100 100 moveto
+200 200 lineto
+stroke                  →   <path d="M 100 100 L 200 200"
+                              clip-path="url(#clipPath2)"
+                              .../>
+----
+
+=== ClipPath Deduplication
+
+Postsvg optimizes by reusing identical clip paths:
+
+.ClipPath Cache
+[example]
+====
+[source,ruby]
+----
+# In ExecutionContext
+@clippath_cache = {}
+
+# First clip path
+clip_path_d = "M 50 50 L 350 350 Z"
+clip_id = @clippath_cache[clip_path_d]
+
+unless clip_id
+  # Create new clipPath
+  clip_id = next_clippath_id  # => 2
+  @clippath_cache[clip_path_d] = clip_id
+  add_def("<clipPath id=\"clipPath#{clip_id}\">
+            <path d=\"#{clip_path_d}\"/>
+           </clipPath>")
+end
+
+# Second identical clip path
+clip_path_d = "M 50 50 L 350 350 Z"
+clip_id = @clippath_cache[clip_path_d]  # => 2 (reused!)
+# No new clipPath created
+----
+
+**Benefits:**
+
+* Reduces SVG file size
+* Improves rendering performance
+* Maintains clean, minimal output
+====
+
+== SVG Generation Process
+
+=== Step-by-Step Generation
+
+The generation process in [`SvgGenerator`](../../lib/postsvg/svg_generator.rb:7):
+
+.Generation Steps
+[source]
+----
+1. Initialize Generator
+   └─> Create empty paths array
+
+2. Execute PostScript
+   └─> Build paths in PathBuilder
+       └─> Convert to SVG path data
+           └─> Add to paths array
+
+3. Generate SVG Document
+   ├─> Create XML declaration
+   ├─> Create <svg> root
+   │   ├─> Set width, height, viewBox
+   │   └─> Add namespace
+   ├─> Create <defs> section
+   │   └─> Add clipPaths, patterns, etc.
+   ├─> Create transform <g>
+   │   └─> Add coordinate flip transform
+   └─> Add path elements
+       └─> With appropriate attributes
+
+4. Format and Output
+   └─> Pretty-print XML
+       └─> Return SVG string
+----
+
+=== Implementation Example
+
+.SVG Generation Code
+[example]
+====
+[source,ruby]
+----
+# Initialize generator
+generator = SvgGenerator.new
+
+# Add paths during interpretation
+generator.add_path(
+  path_segments,
+  graphics_state,
+  :stroke  # or :fill
+)
+
+# Generate final SVG
+svg = generator.generate(
+  width: bbox[:width],
+  height: bbox[:height],
+  viewbox: "#{bbox[:llx]} #{bbox[:lly]} " \
+           "#{bbox[:width]} #{bbox[:height]}"
+)
+
+# Output:
+# <?xml version="1.0" encoding="UTF-8"?>
+# <svg xmlns="http://www.w3.org/2000/svg"
+#      width="612" height="792"
+#      viewBox="0 0 612 792">
+#   <g transform="translate(0 792) scale(1 -1)">
+#     <path d="..." .../>
+#   </g>
+# </svg>
+----
+====
+
+== Optimization Techniques
+
+=== Path Data Minimization
+
+**Remove Redundancy:**
+
+[source,xml]
+----
+<!-- Before: Redundant moveto -->
+<path d="M 100 100 M 100 100 L 200 200"/>
+
+<!-- After: Single moveto -->
+<path d="M 100 100 L 200 200"/>
+----
+
+**Combine Consecutive Commands:**
+
+[source,xml]
+----
+<!-- Before: Multiple lineto -->
+<path d="M 100 100 L 150 100 L 200 100 L 250 100"/>
+
+<!-- After: Implicit lineto -->
+<path d="M 100 100 L 150 100 200 100 250 100"/>
+----
+
+**Use Relative Commands:**
+
+[source,xml]
+----
+<!-- Before: Absolute coordinates -->
+<path d="M 100 100 L 110 100 L 120 100 L 130 100"/>
+
+<!-- After: Relative coordinates (shorter) -->
+<path d="M 100 100 l 10 0 10 0 10 0"/>
+----
+
+=== Attribute Optimization
+
+**Omit Default Values:**
+
+[source,xml]
+----
+<!-- Before: Include defaults -->
+<path d="..."
+      stroke-width="1"
+      stroke-linecap="butt"
+      stroke-linejoin="miter"/>
+
+<!-- After: Omit defaults (1, butt, miter) -->
+<path d="..."/>
+----
+
+**Use Style Attribute:**
+
+[source,xml]
+----
+<!-- Before: Multiple attributes -->
+<path d="..."
+      fill="#ff0000"
+      stroke="#000000"
+      stroke-width="2"/>
+
+<!-- After: Style attribute (sometimes smaller) -->
+<path d="..."
+      style="fill:#ff0000;stroke:#000;stroke-width:2"/>
+----
+
+=== Structural Optimization
+
+**Group Common Attributes:**
+
+[source,xml]
+----
+<!-- Before: Repeated attributes -->
+<path d="..." fill="#ff0000" stroke="none"/>
+<path d="..." fill="#ff0000" stroke="none"/>
+<path d="..." fill="#ff0000" stroke="none"/>
+
+<!-- After: Group with shared style -->
+<g fill="#ff0000" stroke="none">
+  <path d="..."/>
+  <path d="..."/>
+  <path d="..."/>
+</g>
+----
+
+== Advanced SVG Features
+
+=== Gradients and Patterns
+
+While Postsvg focuses on basic PostScript conversion, SVG supports advanced features:
+
+**Linear Gradients:**
+
+[source,xml]
+----
+<defs>
+  <linearGradient id="grad1">
+    <stop offset="0%" stop-color="#ff0000"/>
+    <stop offset="100%" stop-color="#0000ff"/>
+  </linearGradient>
+</defs>
+<path d="..." fill="url(#grad1)"/>
+----
+
+**Patterns:**
+
+[source,xml]
+----
+<defs>
+  <pattern id="pattern1" width="20" height="20"
+           patternUnits="userSpaceOnUse">
+    <circle cx="10" cy="10" r="5" fill="#000"/>
+  </pattern>
+</defs>
+<path d="..." fill="url(#pattern1)"/>
+----
+
+=== Transparency and Blending
+
+SVG Level 3 features:
+
+**Opacity:**
+
+[source,xml]
+----
+<path d="..." fill="#ff0000" opacity="0.5"/>
+<path d="..." fill="#ff0000" fill-opacity="0.5"/>
+----
+
+**Blend Modes:**
+
+[source,xml]
+----
+<path d="..." style="mix-blend-mode: multiply"/>
+----
+
+== Output Quality
+
+=== Validation
+
+Ensure generated SVG is valid:
+
+**XML Well-Formedness:**
+
+* Properly nested elements
+* Quoted attribute values
+* Escaped special characters (&, <, >, ", ')
+
+**SVG Compliance:**
+
+* Valid element names
+* Valid attribute values
+* Proper namespace declarations
+
+.XML Escaping
+[example]
+====
+[source,ruby]
+----
+def escape_xml(str)
+  str.to_s
+    .gsub("&", "&amp;")
+    .gsub("<", "&lt;")
+    .gsub(">", "&gt;")
+    .gsub('"', "&quot;")
+    .gsub("'", "&#39;")
+end
+
+# Usage in text elements
+text = "x < y && y > z"
+escaped = escape_xml(text)
+# => "x &lt; y &amp;&amp; y &gt; z"
+----
+====
+
+=== Browser Compatibility
+
+Generated SVG works in all modern browsers:
+
+* Chrome/Edge (Blink)
+* Firefox (Gecko)
+* Safari (WebKit)
+
+**Best Practices:**
+
+* Use standard SVG 1.1 features
+* Avoid browser-specific extensions
+* Test in multiple browsers
+
+== Performance Considerations
+
+=== Generation Performance
+
+**Time Complexity:**
+
+* Path building: O(n) where n = number of path operators
+* SVG generation: O(m) where m = number of paths
+* Overall: O(n + m) - linear time
+
+**Space Complexity:**
+
+* Path storage: O(p) where p = path data size
+* Output buffer: O(s) where s = SVG document size
+
+=== Rendering Performance
+
+**SVG Rendering:**
+
+* Simple paths: Fast
+* Complex paths: May be slow
+* Many paths: Group by style
+
+**Optimization:**
+
+* Minimize path complexity
+* Reduce number of elements
+* Use appropriate precision
+
+## Troubleshooting
+
+=== Common Issues
+
+**Upside-Down Graphics:**
+
+[source,xml]
+----
+<!-- Missing transform -->
+<svg><path d="..."/></svg>
+
+<!-- Add Y-flip transform -->
+<svg>
+  <g transform="translate(0 height) scale(1 -1)">
+    <path d="..."/>
+  </g>
+</svg>
+----
+
+**Invisible Paths:**
+
+* Check viewBox matches content coordinates
+* Verify stroke/fill attributes
+* Ensure path data is complete
+
+**Invalid SVG:**
+
+* Validate XML syntax
+* Check namespace declaration
+* Verify attribute values
+
+== Next Steps
+
+* Review link:path-operations.adoc[Path Operations] for path construction
+* Explore link:coordinate-systems.adoc[Coordinate Systems] for transforms
+* See link:conversion-pipeline.adoc[Conversion Pipeline] for full process
+* Check link:../architecture/generator-stage.adoc[Generator Architecture]
+* Read link:../api-reference.adoc[API Reference] for implementation details
+
+== Bibliography
+
+* link:path-operations.adoc[Path Operations]
+* link:coordinate-systems.adoc[Coordinate Systems]
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:../architecture/generator-stage.adoc[Generator Stage Architecture]
+* link:https://www.w3.org/TR/SVG/[SVG Specification]
+* link:https://www.w3.org/TR/SVG/paths.html[SVG Paths Specification]
+* link:https://developer.mozilla.org/en-US/docs/Web/SVG[MDN SVG Documentation]

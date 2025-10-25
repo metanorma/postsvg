@@ -1,0 +1,538 @@
+
+= Basic Usage
+:page-nav_order: 2
+:page-parent: Getting Started
+
+== Purpose
+
+This guide demonstrates the fundamental ways to use Postsvg for converting PostScript and EPS files to SVG format. You'll learn both command-line and Ruby API usage patterns that cover most common use cases.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../getting-started.adoc[Getting Started Overview]
+* link:installation.adoc[Installation Guide]
+* link:first-conversion.adoc[First Conversion Tutorial]
+* link:../api-reference.adoc[API Reference]
+* link:../cli-reference.adoc[CLI Reference]
+
+== Concepts
+
+**Command-Line Interface (CLI)**:: The `postsvg` command that allows conversion without writing Ruby code.
+
+**Ruby API**:: Programmatic interface for integrating Postsvg into Ruby applications.
+
+**PostScript File**:: Text file containing PostScript commands (`.ps` extension).
+
+**EPS File**:: Encapsulated PostScript file designed for embedding graphics (`.eps` extension).
+
+**SVG Output**:: Scalable Vector Graphics format, an XML-based vector image format.
+
+== Command-Line Usage
+
+=== Basic File Conversion
+
+The simplest way to convert a file:
+
+[source,sh]
+----
+postsvg convert input.ps output.svg <1>
+----
+<1> Convert `input.ps` to `output.svg`
+
+Where,
+
+`input.ps`:: Source PostScript or EPS file to convert
+`output.svg`:: Destination SVG file to create
+
+.Convert EPS to SVG
+[example]
+====
+[source,sh]
+----
+# Convert diagram.eps to diagram.svg
+postsvg convert diagram.eps diagram.svg
+
+# Output:
+# Successfully converted diagram.eps to diagram.svg
+----
+====
+
+=== Convert to Standard Output
+
+Output SVG to stdout instead of a file:
+
+[source,sh]
+----
+postsvg convert input.ps <1>
+----
+<1> Writes SVG to stdout
+
+.Redirect output to file
+[example]
+====
+[source,sh]
+----
+# Convert and redirect to file
+postsvg convert input.ps > output.svg
+
+# Convert and pipe to another command
+postsvg convert input.ps | xmllint --format - > formatted.svg
+----
+====
+
+=== Batch Conversion
+
+Convert multiple files at once:
+
+[source,sh]
+----
+postsvg batch INPUT_DIR [OUTPUT_DIR] <1>
+----
+<1> Convert all PS/EPS files in `INPUT_DIR`
+
+Where,
+
+`INPUT_DIR`:: Directory containing `.ps` and `.eps` files
+`OUTPUT_DIR`:: (Optional) Directory for SVG output. If omitted, SVG files are created in `INPUT_DIR`
+
+.Batch convert directory
+[example]
+====
+[source,sh]
+----
+# Convert all files in ps_files/ to svg_files/
+postsvg batch ps_files/ svg_files/
+
+# Output:
+# Found 3 file(s) to convert
+#   ✓ ps_files/diagram1.ps → svg_files/diagram1.svg
+#   ✓ ps_files/diagram2.eps → svg_files/diagram2.svg
+#   ✓ ps_files/figure.ps → svg_files/figure.svg
+----
+====
+
+=== File Validation
+
+Check files before conversion:
+
+[source,sh]
+----
+postsvg check FILE... <1>
+----
+<1> Validate one or more PostScript files
+
+.Validate before converting
+[example]
+====
+[source,sh]
+----
+# Validate single file
+postsvg check document.ps
+# ✓ document.ps - Valid PostScript file
+
+# Validate multiple files
+postsvg check *.ps
+# ✓ file1.ps - Valid PostScript file
+# ✓ file2.ps - Valid PostScript file
+# ✗ file3.ps - Syntax error: Unmatched delimiter
+----
+====
+
+== Ruby API Usage
+
+=== Basic Conversion
+
+Convert PostScript content to SVG:
+
+[source,ruby]
+----
+require 'postsvg' <1>
+
+ps_content = File.read('input.ps') <2>
+svg_content = Postsvg.convert(ps_content) <3>
+
+File.write('output.svg', svg_content) <4>
+----
+<1> Load the Postsvg library
+<2> Read PostScript content
+<3> Convert to SVG
+<4> Save SVG to file
+
+Where,
+
+[`Postsvg.convert(ps_content)`](../../lib/postsvg.rb:13):: Converts PostScript string to SVG string
+
+Returns:: SVG markup as a string
+
+.Convert in-memory content
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+ps_content = <<~PS
+  %!PS-Adobe-3.0 EPSF-3.0
+  %%BoundingBox: 0 0 100 100
+  newpath
+  50 50 moveto
+  90 50 lineto
+  stroke
+PS
+
+svg = Postsvg.convert(ps_content)
+puts svg
+# Outputs SVG markup
+----
+====
+
+=== File-Based Conversion
+
+Convert files directly:
+
+[source,ruby]
+----
+require 'postsvg'
+
+Postsvg.convert_file('input.ps', 'output.svg') <1>
+----
+<1> Read, convert, and save in one call
+
+Where,
+
+[`Postsvg.convert_file(input_path, output_path)`](../../lib/postsvg.rb:24):: Convert file to file
+
+`input_path`:: Path to PostScript or EPS file
+`output_path`:: (Optional) Path for SVG output. If omitted, returns SVG content without saving.
+
+Returns:: SVG content string, or output path if `output_path` provided
+
+.Get SVG content without saving
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Get SVG content
+svg_content = Postsvg.convert_file('input.ps')
+
+# Process further
+if svg_content.include?('<path')
+  puts "Conversion successful"
+end
+
+# Or save later
+File.write('output.svg', svg_content)
+----
+====
+
+=== Using the Converter Class
+
+For more control over conversion:
+
+[source,ruby]
+----
+require 'postsvg'
+
+ps_content = File.read('input.ps')
+converter = Postsvg::Converter.new(ps_content) <1>
+svg_output = converter.convert <2>
+
+File.write('output.svg', svg_output)
+----
+<1> Create converter instance
+<2> Perform conversion
+
+Where,
+
+[`Postsvg::Converter.new(ps_content, strict_mode: false)`](../../lib/postsvg/converter.rb:12):: Create converter with options
+
+`ps_content`:: PostScript content as string
+`strict_mode`:: (Optional) Enable strict validation (default: `false`)
+
+.Using strict mode
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+ps_content = File.read('input.ps')
+
+# Enable strict mode - fail on unknown operators
+converter = Postsvg::Converter.new(
+  ps_content,
+  strict_mode: true
+)
+
+begin
+  svg = converter.convert
+  puts "Conversion successful"
+rescue Postsvg::Error => e
+  puts "Error: #{e.message}"
+end
+----
+====
+
+== Common Usage Patterns
+
+=== Workflow 1: Validate Then Convert
+
+[source,sh]
+----
+# 1. Validate file
+postsvg check document.ps
+
+# 2. If valid, convert
+if [ $? -eq 0 ]; then
+  postsvg convert document.ps document.svg
+fi
+----
+
+=== Workflow 2: Batch Process Directory
+
+[source,ruby]
+----
+require 'postsvg'
+
+Dir.glob('*.ps').each do |ps_file|
+  svg_file = ps_file.sub('.ps', '.svg')
+
+  begin
+    Postsvg.convert_file(ps_file, svg_file)
+    puts "✓ Converted #{ps_file}"
+  rescue Postsvg::Error => e
+    puts "✗ Failed #{ps_file}: #{e.message}"
+  end
+end
+----
+
+=== Workflow 3: Convert with Error Handling
+
+[source,ruby]
+----
+require 'postsvg'
+
+def safe_convert(input_file, output_file)
+  ps_content = File.read(input_file)
+
+  # Try strict mode first
+  converter = Postsvg::Converter.new(ps_content, strict_mode: true)
+  svg = converter.convert
+
+  File.write(output_file, svg)
+  puts "Success: #{output_file}"
+rescue Postsvg::Error => e
+  puts "Error: #{e.message}"
+  puts "Trying lenient mode..."
+
+  # Fall back to lenient mode
+  converter = Postsvg::Converter.new(ps_content, strict_mode: false)
+  svg = converter.convert
+  File.write(output_file, svg)
+ operators ignored)"
+rescue StandardError => e
+  puts "Failed: #{e.message}"
+end
+
+safe_convert('input.ps', 'output.svg')
+----
+====
+
+=== Workflow 4: Process Web Uploads
+
+[source,ruby]
+----
+require 'postsvg'
+
+def convert_uploaded_file(upload)
+  # Read uploaded content
+  ps_content = upload.read
+
+  # Convert to SVG
+  svg = Postsvg.convert(ps_content)
+
+  # Create temporary SVG file
+  svg_file = Tempfile.new(['converted', '.svg'])
+  svg_file.write(svg)
+  svg_file.rewind
+
+  svg_file
+end
+
+# In Rails controller
+def convert
+  uploaded = params[:file]
+  svg_file = convert_uploaded_file(uploaded)
+  send_file svg_file.path,
+            filename: 'converted.svg',
+            type: 'image/svg+xml'
+end
+----
+
+== Output Examples
+
+=== Simple Rectangle
+
+**Input PostScript:**
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 100 100
+newpath
+10 10 moveto
+90 10 lineto
+90 90 lineto
+10 90 lineto
+closepath
+0.5 setgray
+fill
+----
+
+**Output SVG:**
+[source,xml]
+----
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="100" height="100"
+     viewBox="0 0 100 100">
+  <path d="M 10 90 L 90 90 L 90 10 L 10 10 Z"
+        fill="#808080"/>
+</svg>
+----
+
+=== Stroked Path
+
+**Input PostScript:**
+[source,postscript]
+----
+%!PS-Adobe-3.0
+%%BoundingBox: 0 0 200 200
+newpath
+50 50 moveto
+150 150 lineto
+2 setlinewidth
+1 0 0 setrgbcolor
+stroke
+----
+
+**Output SVG:**
+[source,xml]
+----
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="200" height="200"
+     viewBox="0 0 200 200">
+  <path d="M 50 150 L 150 50"
+        stroke="#ff0000"
+        stroke-width="2"
+        fill="none"/>
+</svg>
+----
+
+== Error Handling
+
+=== Handling Conversion Errors
+
+[source,ruby]
+----
+require 'postsvg'
+
+begin
+  svg = Postsvg.convert(ps_content)
+  File.write('output.svg', svg)
+rescue Postsvg::ParseError => e
+  puts "Parse error: #{e.message}"
+rescue Postsvg::ConversionError => e
+  puts "Conversion error: #{e.message}"
+rescue Postsvg::Error => e
+  puts "Error: #{e.message}"
+rescue StandardError => e
+  puts "Unexpected error: #{e.message}"
+end
+----
+
+=== Validating Before Conversion
+
+[source,ruby]
+----
+require 'postsvg'
+
+def validate_and_convert(ps_file, svg_file)
+  # First validate
+  result = system("postsvg check #{ps_file}")
+
+  unless result
+    puts "Validation failed"
+    return false
+  end
+
+  # Then convert
+  Postsvg.convert_file(ps_file, svg_file)
+  true
+rescue => e
+  puts "Error: #{e.message}"
+  false
+end
+----
+
+== Performance Tips
+
+=== Batch Processing Efficiently
+
+[source,ruby]
+----
+require 'postsvg'
+
+files = Dir.glob('*.ps')
+
+# Process in batches to manage memory
+files.each_slice(10) do |batch|
+  batch.each do |file|
+    Postsvg.convert_file(file, file.sub('.ps', '.svg'))
+  end
+
+  # Force garbage collection between batches
+  GC.start
+end
+----
+
+=== Reusing Converter Instance
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Don't do this - creates new instance each time
+files.each do |file|
+  Postsvg.convert_file(file, file.sub('.ps', '.svg'))
+end
+
+# Better - though note Converter is not thread-safe
+ps_files.map do |ps_content|
+  converter = Postsvg::Converter.new(ps_content)
+  converter.convert
+end
+----
+
+== Next Steps
+
+After mastering basic usage:
+
+* Follow the link:first-conversion.adoc[First Conversion Tutorial] for a detailed walkthrough
+* Learn link:common-workflows.adoc[Common Workflows] for real-world scenarios
+* Explore link:../cli-reference.adoc[CLI Reference] for all command options
+* Read link:../api-reference.adoc[API Reference] for advanced API usage
+* Check link:../troubleshooting.adoc[Troubleshooting] if you encounter issues
+
+== Bibliography
+
+* link:installation.adoc[Installation Guide]
+* link:first-conversion.adoc[First Conversion Tutorial]
+* link:../api-reference.adoc[API Reference]
+* link:../cli-reference.adoc[CLI Reference]
+* link:https://rubygems.org/gems/postsvg[Postsvg on RubyGems]
+  puts "Partial success: #{output_file} (some

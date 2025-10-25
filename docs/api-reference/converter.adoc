@@ -1,0 +1,699 @@
+= Converter Class
+:page-nav_order: 2
+:page-parent: API Reference
+
+== Purpose
+
+The [`Converter`](../../lib/postsvg/converter.rb:8) class provides the main interface for converting PostScript content to SVG with configurable options. It orchestrates the entire conversion pipeline from tokenization through SVG generation.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:postsvg-module.adoc[Postsvg Module]
+* link:interpreter.adoc[Interpreter Class]
+* link:../getting-started/basic-usage.adoc[Basic Usage Guide]
+
+== Concepts
+
+**Converter**:: The main orchestrator class that coordinates tokenization, interpretation, and SVG generation.
+
+**Strict Mode**:: A validation mode that fails immediately when encountering unknown or unsupported PostScript operators.
+
+**BoundingBox**:: The rectangular area containing all graphics, extracted from the `%%BoundingBox` comment in PostScript files.
+
+**Tokenization**:: The process of breaking PostScript source code into discrete tokens.
+
+**Interpretation**:: The process of executing PostScript commands to build the graphics state.
+
+== Class Overview
+
+The [`Converter`](../../lib/postsvg/converter.rb:8) class is defined in [`lib/postsvg/converter.rb`](../../lib/postsvg/converter.rb:1).
+
+**Responsibilities:**
+* Extract BoundingBox from PostScript content
+* Tokenize PostScript using [`Tokenizer`](../../lib/postsvg/tokenizer.rb:8)
+* Create and configure [`Interpreter`](../../lib/postsvg/interpreter.rb:9)
+* Coordinate conversion pipeline
+* Return generated SVG
+
+**Dependencies:**
+* [`Tokenizer`](../../lib/postsvg/tokenizer.rb:8) - For tokenization
+* [`Interpreter`](../../lib/postsvg/interpreter.rb:9) - For execution
+
+## Class Methods
+
+=== new
+
+Create a new Converter instance.
+
+**Syntax:**
+
+[source,ruby]
+----
+converter = Postsvg::Converter.new(ps_content, strict_mode: false) <1>
+----
+<1> Initialize converter with PostScript content and options
+
+**Where:**
+
+`ps_content`:: String containing PostScript or EPS content
+
+`strict_mode`:: (Optional) Boolean enabling strict validation
+  * `true` - Fail on unknown operators
+  * `false` - Ignore unknown operators (default)
+
+**Returns:**
+New `Converter` instance
+
+**Source:**
+[`lib/postsvg/converter.rb:12-15`](../../lib/postsvg/converter.rb:12)
+
+.Create converter with default options
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+ps_content = File.read('diagram.ps')
+converter = Postsvg::Converter.new(ps_content)
+
+# Converter is ready to convert
+svg = converter.convert
+----
+====
+
+.Create converter with strict mode
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+ps_content = File.read('diagram.ps')
+
+# Enable strict mode - fail on unknown operators
+converter = Postsvg::Converter.new(
+  ps_content,
+  strict_mode: true
+)
+
+begin
+  svg = converter.convert
+  puts "Conversion successful"
+rescue Postsvg::Error => e
+  puts "Error: #{e.message}"
+  # Handle unknown operators or other errors
+end
+----
+
+Strict mode is useful for:
+* Development and testing
+* Ensuring complete operator support
+* Validating PostScript compatibility
+* Debugging conversion issues
+====
+
+== Instance Methods
+
+=== convert
+
+Perform the actual PostScript to SVG conversion.
+
+**Syntax:**
+
+[source,ruby]
+----
+svg_output = converter.convert <1>
+----
+<1> Execute conversion and return SVG
+
+**Returns:**
+String containing complete SVG document
+
+**Raises:**
+* [`Postsvg::ParseError`](../../lib/postsvg/errors.rb:1) - If PostScript syntax is invalid
+* [`Postsvg::ConversionError`](../../lib/postsvg/errors.rb:1) - If conversion fails
+* [`Postsvg::Error`](../../lib/postsvg/errors.rb:1) - For other Postsvg-specific errors
+
+**Source:**
+[`lib/postsvg/converter.rb:17-29`](../../lib/postsvg/converter.rb:17)
+
+.Basic conversion
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+ps_content = <<~PS
+  %!PS-Adobe-3.0 EPSF-3.0
+  %%BoundingBox: 0 0 200 200
+  newpath
+  100 100 moveto
+  150 100 lineto
+  stroke
+PS
+
+converter = Postsvg::Converter.new(ps_content)
+svg = converter.convert
+
+File.write('output.svg', svg)
+puts "Conversion complete: #{svg.bytesize} bytes"
+----
+====
+
+.Convert with error handling
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+def safe_convert(ps_file, svg_file, strict: false)
+  ps_content = File.read(ps_file)
+  converter = Postsvg::Converter.new(ps_content, strict_mode: strict)
+
+  svg = converter.convert
+  File.write(svg_file, svg)
+
+  {
+    success: true,
+    output: svg_file,
+    size: svg.bytesize
+  }
+rescue Postsvg::ParseError => e
+  {
+    success: false,
+    error: "Parse error: #{e.message}",
+    type: :parse_error
+  }
+rescue Postsvg::ConversionError => e
+  {
+    success: false,
+    error: "Conversion error: #{e.message}",
+    type: :conversion_error
+  }
+rescue StandardError => e
+  {
+    success: false,
+    error: "Unexpected error: #{e.message}",
+    type: :unknown_error
+  }
+end
+
+result = safe_convert('input.ps', 'output.svg', strict: true)
+if result[:success]
+  puts "Success: #{result[:output]} (#{result[:size]} bytes)"
+else
+  puts "Failed: #{result[:error]}"
+end
+----
+====
+
+**Implementation Details:**
+
+The `convert` method:
+1. Extracts BoundingBox using `extract_bounding_box` (private method)
+2. Tokenizes PostScript using [`Tokenizer.tokenize`](../../lib/postsvg/tokenizer.rb:9)
+3. Creates [`Interpreter`](../../lib/postsvg/interpreter.rb:9) with strict_mode setting
+4. Calls `interpreter.interpret(tokens, bounding_box)`
+5. Returns SVG from result hash: `result[:svg]`
+
+== Attributes
+
+=== ps_content (read-only)
+
+Access the PostScript content stored in the converter.
+
+**Syntax:**
+
+[source,ruby]
+----
+content = converter.ps_content <1>
+----
+<1> Get the original PostScript content
+
+**Returns:**
+String containing the PostScript content passed to `new`
+
+**Source:**
+[`lib/postsvg/converter.rb:9`](../../lib/postsvg/converter.rb:9)
+
+.Access PostScript content
+[example]
+====
+[source,ruby]
+----
+converter = Postsvg::Converter.new(ps_content)
+
+# Get content for inspection
+content = converter.ps_content
+puts "Content length: #{content.bytesize} bytes"
+puts "Has BoundingBox: #{content.include?('%%BoundingBox')}"
+----
+====
+
+=== strict_mode (read/write)
+
+Get or set the strict mode flag.
+
+**Syntax:**
+
+[source,ruby]
+----
+is_strict = converter.strict_mode <1>
+converter.strict_mode = true <2>
+----
+<1> Get current strict mode setting
+<2> Set strict mode after initialization
+
+**Returns:**
+Boolean (`true` if strict mode enabled, `false` otherwise)
+
+**Source:**
+[`lib/postsvg/converter.rb:10`](../../lib/postsvg/converter.rb:10)
+
+.Toggle strict mode
+[example]
+====
+[source,ruby]
+----
+converter = Postsvg::Converter.new(ps_content)
+
+# Check initial setting
+puts "Strict mode: #{converter.strict_mode}"  # false
+
+# Try conversion with lenient mode first
+begin
+  svg = converter.convert
+  puts "Lenient conversion succeeded"
+rescue => e
+  puts "Even lenient mode failed: #{e.message}"
+end
+
+# Enable strict mode for another attempt
+converter.strict_mode = true
+
+begin
+  # This will fail on any unknown operators
+  svg = converter.convert
+rescue Postsvg::Error => e
+  puts "Strict mode revealed: #{e.message}"
+end
+----
+====
+
+== Usage Patterns
+
+=== Pattern 1: Simple Conversion
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Read file
+ps_content = File.read('input.ps')
+
+# Create converter
+converter = Postsvg::Converter.new(ps_content)
+
+# Convert
+svg = converter.convert
+
+# Save
+File.write('output.svg', svg)
+----
+
+=== Pattern 2: Strict Validation
+
+[source,ruby]
+----
+require 'postsvg'
+
+def validate_postscript_support(ps_file)
+  ps_content = File.read(ps_file)
+
+  # Use strict mode to check for unsupported operators
+  converter = Postsvg::Converter.new(ps_content, strict_mode: true)
+  converter.convert
+
+  { supported: true, message: "All operators supported" }
+rescue Postsvg::Error => e
+  { supported: false, message: e.message }
+end
+
+result = validate_postscript_support('document.ps')
+puts result[:supported] ? "✓ Fully supported" : "✗ #{result[:message]}"
+----
+
+=== Pattern 3: Fallback Strategy
+
+[source,ruby]
+----
+require 'postsvg'
+
+def convert_with_fallback(ps_file, svg_file)
+  ps_content = File.read(ps_file)
+
+  # Try strict mode first
+  begin
+    converter = Postsvg::Converter.new(ps_content, strict_mode: true)
+    svg = converter.convert
+    File.write(svg_file, svg)
+    return { status: :full_support, warnings: [] }
+  rescue Postsvg::Error => e
+    warnings = [e.message]
+
+    # Fall back to lenient mode
+    begin
+      converter = Postsvg::Converter.new(ps_content, strict_mode: false)
+      svg = converter.convert
+      File.write(svg_file, svg)
+      return { status: :partial_support, warnings: warnings }
+    rescue StandardError => e2
+      return { status: :failed, errors: [e.message, e2.message] }
+    end
+  end
+end
+
+result = convert_with_fallback('input.ps', 'output.svg')
+puts "Status: #{result[:status]}"
+puts "Warnings: #{result[:warnings]}" if result[:warnings]
+----
+
+=== Pattern 4: Batch Processing with Progress
+
+[source,ruby]
+----
+require 'postsvg'
+
+class BatchConverter
+  def initialize(files, strict: false)
+    @files = files
+    @strict = strict
+    @results = []
+  end
+
+  def convert_all
+    @files.each_with_index do |file, index|
+      print "Converting #{index + 1}/#{@files.size}: #{File.basename(file)}... "
+
+      result = convert_single(file)
+      @results << result
+
+      puts result[:success] ? "✓" : "✗ #{result[:error]}"
+    end
+
+    print_summary
+  end
+
+  private
+
+  def convert_single(file)
+    ps_content = File.read(file)
+    converter = Postsvg::Converter.new(ps_content, strict_mode: @strict)
+    svg = converter.convert
+
+    output_file = file.sub(/\.(ps|eps)$/i, '.svg')
+    File.write(output_file, svg)
+
+    { success: true, file: file, output: output_file }
+  rescue => e
+    { success: false, file: file, error: e.message }
+  end
+
+  def print_summary
+    successful = @results.count { |r| r[:success] }
+    failed = @results.count { |r| !r[:success] }
+
+    puts "\nSummary: #{successful} succeeded, #{failed} failed"
+  end
+end
+
+# Usage
+files = Dir.glob('*.ps')
+BatchConverter.new(files, strict: false).convert_all
+----
+
+== Comparison with Module Methods
+
+**Use [`Converter`](../../lib/postsvg/converter.rb:8) class when:**
+- ✅ You need strict mode validation
+- ✅ You want reusable converter instances
+- ✅ You need access to intermediate state
+- ✅ Building a service or library
+- ✅ Require error handling control
+
+**Use [`Postsvg.convert`](../../lib/postsvg.rb:13) when:**
+- ✅ Quick one-off conversions
+- ✅ Simplest possible API
+- ✅ Default settings sufficient
+- ✅ Scripting scenarios
+- ✅ Minimal code desired
+
+.Comparison example
+[example]
+====
+[source,ruby]
+----
+# Module method (simpler)
+svg = Postsvg.convert(ps_content)
+
+# Converter class (more control)
+converter = Postsvg::Converter.new(ps_content, strict_mode: true)
+svg = converter.convert
+----
+
+Both produce the same SVG output, but the Converter class offers more control.
+====
+
+== Thread Safety
+
+The `Converter` class is **not thread-safe**. Each thread should have its own instance:
+
+.Correct multi-threaded usage
+[example]
+====
+[source,ruby]
+----
+# Bad: Sharing converter across threads
+converter = Postsvg::Converter.new(ps_content)
+threads = 5.times.map do
+  Thread.new { converter.convert }  # NOT THREAD-SAFE!
+end
+
+# Good: Each thread has own converter
+ps_files = Dir.glob('*.ps')
+threads = ps_files.map do |file|
+  Thread.new do
+    content = File.read(file)
+    converter = Postsvg::Converter.new(content)
+    converter.convert
+  end
+end
+
+results = threads.map(&:value)
+----
+====
+
+== Performance Characteristics
+
+**Time Complexity:**
+* Tokenization: O(n) where n = content length
+* Interpretation: O(m) where m = number of operators
+* SVG Generation: O(p) where p = number of paths
+
+**Space Complexity:**
+* Memory usage proportional to:
+  - Input file size
+  - Number of paths
+  - Graphics state stack depth
+  - Dictionary entries
+
+**Typical Performance:**
+* Small files (<100KB): <1 second
+* Medium files (100KB-1MB): 1-5 seconds
+* Large files (>1MB): 5-30 seconds
+
+.Performance monitoring
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+require 'benchmark'
+
+ps_content = File.read('large_file.ps')
+puts "File size: #{ps_content.bytesize / 1024} KB"
+
+time = Benchmark.measure do
+  converter = Postsvg::Converter.new(ps_content)
+  @svg = converter.convert
+end
+
+puts "Conversion time: #{'%.2f' % time.real} seconds"
+puts "Output size: #{@svg.bytesize / 1024} KB"
+puts "Ratio: #{'%.1f' % (@svg.bytesize.to_f / ps_content.bytesize)}x"
+----
+====
+
+== Error Handling
+
+The `Converter` class can raise several types of errors:
+
+**Error Hierarchy:**
+
+[source]
+----
+StandardError
+  └─ Postsvg::Error
+      ├─ Postsvg::ParseError
+      ├─ Postsvg::ConversionError
+      └─ Postsvg::ValidationError
+----
+
+.Handle specific error types
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+def convert_with_detailed_error_handling(ps_file)
+  ps_content = File.read(ps_file)
+  converter = Postsvg::Converter.new(ps_content, strict_mode: true)
+
+  svg = converter.convert
+
+  {
+    status: :success,
+    svg: svg,
+    file_size: svg.bytesize
+  }
+rescue Postsvg::ParseError => e
+  {
+    status: :parse_error,
+    message: e.message,
+    recommendation: "Check PostScript syntax"
+  }
+rescue Postsvg::ConversionError => e
+  {
+    status: :conversion_error,
+    message: e.message,
+    recommendation: "Try lenient mode or check operators"
+  }
+rescue Postsvg::ValidationError => e
+  {
+    status: :validation_error,
+    message: e.message,
+    recommendation: "Validate file with 'postsvg check'"
+  }
+rescue Postsvg::Error => e
+  {
+    status: :error,
+    message: e.message,
+    recommendation: "Review error message"
+  }
+end
+
+result = convert_with_detailed_error_handling('input.ps')
+case result[:status]
+when :success
+  puts "✓ Success: #{result[:file_size]} bytes"
+when :parse_error, :conversion_error, :validation_error
+  puts "✗ #{result[:status]}: #{result[:message]}"
+  puts "  Try: #{result[:recommendation]}"
+else
+  puts "✗ Error: #{result[:message]}"
+end
+----
+====
+
+== Advanced Usage
+
+=== Custom Error Recovery
+
+[source,ruby]
+----
+require 'postsvg'
+
+class RobustConverter
+  def initialize(ps_content)
+    @ps_content = ps_content
+    @attempts = []
+  end
+
+  def convert
+    # Attempt 1: Strict mode
+    attempt_strict ||
+    # Attempt 2: Lenient mode
+    attempt_lenient ||
+    # Attempt 3: With cleanup
+    attempt_with_cleanup ||
+    # Final: Report failure
+    report_failure
+  end
+
+  private
+
+  def attempt_strict
+    converter = Postsvg::Converter.new(@ps_content, strict_mode: true)
+    svg = converter.convert
+    @attempts << { mode: :strict, success: true }
+    svg
+  rescue => e
+    @attempts << { mode: :strict, success: false, error: e.message }
+    nil
+  end
+
+  def attempt_lenient
+    converter = Postsvg::Converter.new(@ps_content, strict_mode: false)
+    svg = converter.convert
+    @attempts << { mode: :lenient, success: true }
+    svg
+  rescue => e
+    @attempts << { mode: :lenient, success: false, error: e.message }
+    nil
+  end
+
+  def attempt_with_cleanup
+    # Try cleaning common issues
+    cleaned = @ps_content.gsub(/%%\w+:.*$/, '')  # Remove some comments
+    converter = Postsvg::Converter.new(cleaned, strict_mode: false)
+    svg = converter.convert
+    @attempts << { mode: :cleaned, success: true }
+    svg
+  rescue => e
+    @attempts << { mode: :cleaned, success: false, error: e.message }
+    nil
+  end
+
+  def report_failure
+    puts "All conversion attempts failed:"
+    @attempts.each_with_index do |attempt, i|
+      puts "  #{i + 1}. #{attempt[:mode]}: #{attempt[:error]}"
+    end
+    raise Postsvg::ConversionError, "All conversion strategies failed"
+  end
+end
+
+# Usage
+robust = RobustConverter.new(File.read('problematic.ps'))
+svg = robust.convert
+----
+
+== Next Steps
+
+* Learn about link:interpreter.adoc[Interpreter Class] for execution details
+* Review link:execution-context.adoc[ExecutionContext] for state management
+* See link:../getting-started/basic-usage.adoc[Basic Usage] for practical examples
+* Check link:../advanced-topics/strict-mode.adoc[Strict Mode] for validation details
+
+== Bibliography
+
+* link:postsvg-module.adoc[Postsvg Module Documentation]
+* link:interpreter.adoc[Interpreter Class Documentation]
+* link:../architecture.adoc[Architecture Overview]
+* link:../getting-started/basic-usage.adoc[Basic Usage Guide]

@@ -1,0 +1,772 @@
+= PostSVG Validation Guide
+:toc: left
+:toclevels: 3
+:sectnums:
+
+== Introduction
+
+PostSVG includes a comprehensive validation tool for PostScript and EPS files. The validator helps identify syntax errors, semantic issues, and structural problems before attempting conversion to SVG.
+
+== Quick Start
+
+=== Basic Usage
+
+Validate a single file:
+
+[source,shell]
+----
+postsvg check document.ps
+----
+
+Validate multiple files:
+
+[source,shell]
+----
+postsvg check file1.ps file2.eps file3.ps
+----
+
+Validate all PostScript files in directory:
+
+[source,shell]
+----
+postsvg check *.ps
+----
+
+== Validation Levels
+
+PostSVG provides three validation levels, each building on the previous:
+
+=== Syntax Level (Fast)
+
+The syntax level performs basic structural checks without executing PostScript code.
+
+*Checks performed:*
+
+* Header format validation (PS vs EPS)
+* BoundingBox validation for EPS files
+* Delimiter balance (parentheses, brackets, braces)
+* Basic tokenization
+* EOF marker presence
+
+*Usage:*
+
+[source,shell]
+----
+postsvg check --level=syntax file.ps
+----
+
+*When to use:*
+
+* Quick validation of many files
+* Pre-processing check before batch conversion
+* CI/CD pipeline early validation
+* Syntax-only linting
+
+=== Semantic Level (Default)
+
+The semantic level adds PostScript operator analysis without full conversion.
+
+*Checks performed:*
+
+* All syntax checks
+* Stack balance simulation
+* Graphics state tracking (gsave/grestore pairs)
+* Dictionary tracking (dict begin/end pairs)
+* Operator coverage checking
+
+*Usage:*
+
+[source,shell]
+----
+postsvg check file.ps
+postsvg check --level=semantic file.ps
+----
+
+*When to use:*
+
+* Default validation for most use cases
+* Detecting logical errors before conversion
+* Ensuring PostScript semantic correctness
+
+=== Full Level (Strict)
+
+The full level performs complete conversion attempt for strictest validation.
+
+*Checks performed:*
+
+* All semantic checks
+* Complete PostScript interpretation
+* Full conversion to SVG
+* All PostScript operator execution
+
+*Usage:*
+
+[source,shell]
+----
+postsvg check --level=full file.ps
+----
+
+*When to use:*
+
+* Final validation before production
+* Testing conversion compatibility
+* Debugging complex PostScript files
+
+== Output Formats
+
+=== Text Format (Default)
+
+Human-readable colorized output with visual indicators.
+
+*Usage:*
+
+[source,shell]
+----
+postsvg check file.ps
+----
+
+*Example output:*
+
+[source,text]
+----
+✓ file.ps is valid
+
+✗ broken.ps has errors:
+  ERROR: Unclosed string literal at line 5
+  ERROR: Stack underflow at line 10
+  WARNING: Unmatched gsave at line 15
+----
+
+*Options:*
+
+* `--verbose`: Show warnings and info messages
+* `--quiet`: Suppress valid file messages
+* `--no-color`: Disable colored output
+
+=== YAML Format
+
+Structured output suitable for parsing and automation.
+
+*Usage:*
+
+[source,shell]
+----
+postsvg check --format=yaml file.ps
+----
+
+*Example output:*
+
+[source,yaml]
+----
+file.ps:
+  valid: true
+  errors: []
+  warnings: []
+  info: []
+
+broken.ps:
+  valid: false
+  errors:
+    - "Unclosed string literal at line 5"
+    - "Stack underflow at line 10"
+  warnings:
+    - "Unmatched gsave at line 15"
+  info: []
+----
+
+=== JSON Format
+
+Machine-readable JSON output for integration with other tools.
+
+*Usage:*
+
+[source,shell]
+----
+postsvg check --format=json file.ps
+----
+
+*Example output:*
+
+[source,json]
+----
+{
+  "file.ps": {
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "info": []
+  },
+  "broken.ps": {
+    "valid": false,
+    "errors": [
+      "Unclosed string literal at line 5",
+      "Stack underflow at line 10"
+    ],
+    "warnings": [
+      "Unmatched gsave at line 15"
+    ],
+    "info": []
+  }
+}
+----
+
+== Validation Options
+
+=== Verbose Mode
+
+Display all messages including warnings and informational messages.
+
+[source,shell]
+----
+postsvg check --verbose file.ps
+----
+
+*Shows:*
+
+* All errors
+* All warnings
+* All informational messages
+* Operator coverage information
+
+=== Quiet Mode
+
+Suppress messages for valid files, only show errors.
+
+[source,shell]
+----
+postsvg check --quiet *.ps
+----
+
+*Use cases:*
+
+* Batch validation of many files
+* Focus on problematic files only
+* Cleaner CI/CD output
+
+=== Fail-Fast Mode
+
+Stop validation at the first error encountered.
+
+[source,shell]
+----
+postsvg check --fail-fast file1.ps file2.ps file3.ps
+----
+
+*Behavior:*
+
+* Processes files in order
+* Stops immediately when error found
+* Returns exit code 1
+* Useful for rapid error detection
+
+=== Color Control
+
+Disable colored output for log files or non-terminal environments.
+
+[source,shell]
+----
+postsvg check --no-color file.ps > validation.log
+----
+
+=== EPS Version Validation
+
+Validate EPS version compliance for specific PostScript levels.
+
+[source,shell]
+----
+postsvg check --eps-version=3.0 diagram.eps
+----
+
+*Supported versions:*
+
+* 1.0 - Basic EPS
+* 2.0 - Level 2 PostScript
+* 3.0 - Level 3 PostScript
+
+== Common Validation Errors
+
+=== Delimiter Imbalance
+
+*Error:* `Unclosed string literal`
+
+*Cause:* Missing closing parenthesis in string.
+
+*Example:*
+
+[source,postscript]
+----
+(Hello World  % Missing )
+----
+
+*Fix:*
+
+[source,postscript]
+----
+(Hello World)
+----
+
+=== Stack Underflow
+
+*Error:* `Stack underflow`
+
+*Cause:* Operator requires more values than available on stack.
+
+*Example:*
+
+[source,postscript]
+----
+pop  % Stack is empty
+----
+
+*Fix:*
+
+[source,postscript]
+----
+5 pop  % Push value before popping
+----
+
+=== Unmatched Graphics State
+
+*Warning:* `Unmatched gsave/grestore`
+
+*Cause:* Missing grestore for gsave operation.
+
+*Example:*
+
+[source,postscript]
+----
+gsave
+  1 0 0 setrgbcolor
+  100 100 moveto
+  % Missing grestore
+----
+
+*Fix:*
+
+[source,postscript]
+----
+gsave
+  1 0 0 setrgbcolor
+  100 100 moveto
+grestore
+----
+
+=== Missing BoundingBox
+
+*Error:* `EPS file missing required BoundingBox comment`
+
+*Cause:* EPS file lacks required `%%BoundingBox` header.
+
+*Example:*
+
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0
+% Missing %%BoundingBox
+----
+
+*Fix:*
+
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 612 792
+----
+
+=== Dictionary Imbalance
+
+*Warning:* `Unmatched dict begin/end`
+
+*Cause:* Dictionary started but not ended, or vice versa.
+
+*Example:*
+
+[source,postscript]
+----
+10 dict begin
+  /key1 value1 def
+  % Missing end
+----
+
+*Fix:*
+
+[source,postscript]
+----
+10 dict begin
+  /key1 value1 def
+end
+----
+
+== Exit Codes
+
+PostSVG validation returns standard exit codes for CI/CD integration:
+
+* `0` - All files valid, no errors
+* `1` - One or more files have errors
+
+=== CI/CD Integration
+
+==== GitHub Actions
+
+[source,yaml]
+----
+name: Validate PostScript Files
+on: [push, pull_request]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+      - run: gem install postsvg
+      - run: postsvg check --fail-fast --format=json *.ps
+----
+
+==== GitLab CI
+
+[source,yaml]
+----
+validate:
+  image: ruby:3.2
+  script:
+    - gem install postsvg
+    - postsvg check --format=yaml --no-color *.ps
+  artifacts:
+    reports:
+      junit: validation-report.xml
+----
+
+==== Jenkins
+
+[source,groovy]
+----
+stage('Validate PostScript') {
+    steps {
+        sh 'gem install postsvg'
+        sh 'postsvg check --fail-fast *.ps'
+    }
+}
+----
+
+== Advanced Usage
+
+=== Batch Processing
+
+Validate all PostScript files in directory tree:
+
+[source,shell]
+----
+find . -name "*.ps" -exec postsvg check --quiet {} \;
+----
+
+Generate validation report:
+
+[source,shell]
+----
+postsvg check --format=json *.ps > validation-report.json
+----
+
+=== Pre-commit Hook
+
+Add validation to Git pre-commit hook:
+
+[source,shell]
+----
+#!/bin/sh
+# .git/hooks/pre-commit
+
+# Get list of PostScript files being committed
+PS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.ps$')
+
+if [ -n "$PS_FILES" ]; then
+    echo "Validating PostScript files..."
+    for file in $PS_FILES; do
+        postsvg check --fail-fast "$file" || exit 1
+    done
+fi
+----
+
+=== Automated Testing
+
+Use validation in RSpec tests:
+
+[source,ruby]
+----
+require 'postsvg'
+
+RSpec.describe "PostScript Files" do
+  Dir.glob("spec/fixtures/**/*.ps").each do |file|
+    it "#{file} is valid" do
+      result = `postsvg check --format=json #{file}`
+      data = JSON.parse(result)
+      expect(data.dig(file, "valid")).to be true
+    end
+  end
+end
+----
+
+== Best Practices
+
+=== Development Workflow
+
+. Use syntax level during development for quick feedback
+. Use semantic level before committing changes
+. Use full level before production deployment
+
+=== File Organization
+
+. Keep test fixtures in `spec/fixtures/validation/`
+. Organize by valid/invalid categories
+. Use descriptive filenames indicating error type
+
+=== Documentation
+
+. Document expected validation results in fixtures
+. Include validation level requirements in README
+. Add validation examples to user documentation
+
+=== Performance
+
+. Use syntax level for large batch operations
+. Enable fail-fast for quick error detection
+. Use quiet mode for cleaner output in automation
+
+== Troubleshooting
+
+=== Validator Returns False Positives
+
+*Issue:* Valid PostScript reported as invalid.
+
+*Solutions:*
+
+. Check PostScript version compatibility
+. Verify operator support in PostSVG
+. Use `--verbose` to see detailed messages
+. Test with `--level=syntax` to isolate issue
+
+=== Validator Misses Errors
+
+*Issue:* Invalid PostScript reported as valid.
+
+*Solutions:*
+
+. Use higher validation level (`--level=full`)
+. Enable verbose mode to see warnings
+. Check if error is semantic vs syntactic
+. Report issue with sample file
+
+=== Performance Issues
+
+*Issue:* Validation is slow for large files.
+
+*Solutions:*
+
+. Use `--level=syntax` for initial checks
+. Enable `--fail-fast` for quicker failure
+. Process files in parallel using shell tools
+. Consider file size and complexity
+
+== API Usage
+
+=== Ruby API
+
+Use validation programmatically in Ruby:
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Validate a file
+service = Postsvg::ValidationService.new(
+  level: :semantic,
+  fail_fast: false,
+  verbose: false
+)
+
+result = service.validate_file('document.ps')
+
+if result.valid?
+  puts "File is valid"
+else
+  puts "Errors:"
+  result.error_messages.each { |msg| puts "  #{msg}" }
+end
+----
+
+=== Validation Result Object
+
+[source,ruby]
+----
+# Access validation details
+result.valid?                # => true/false
+result.error_count          # => Integer
+result.warning_count        # => Integer
+result.info_count           # => Integer
+
+result.error_messages       # => Array of error strings
+result.warning_messages     # => Array of warning strings
+result.info_messages        # => Array of info strings
+
+result.all_messages         # => Hash with all messages by severity
+----
+
+=== Custom Reporters
+
+Create custom reporter for specific output format:
+
+[source,ruby]
+----
+class CustomReporter
+  def report(results)
+    # results is Hash of filename => ValidationResult
+    results.each do |file, result|
+      # Custom formatting logic
+    end
+  end
+end
+
+# Use custom reporter
+reporter = CustomReporter.new
+reporter.report(validation_results)
+----
+
+== Architecture
+
+=== Component Diagram
+
+[source]
+----
+┌─────────────────────────────────────────────────────────┐
+│                      CLI Command                         │
+│                  (check command)                         │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│                  ValidationService                       │
+│  • Orchestrates validation process                      │
+│  • Manages validation levels                            │
+│  • Implements fail-fast logic                           │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+        ┌───────────────┼───────────────┐
+        ▼               ▼               ▼
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│   Syntax    │ │  Semantic   │ │    Full     │
+│  Validator  │ │  Validator  │ │  Validator  │
+└──────┬──────┘ └──────┬──────┘ └──────┬──────┘
+       │               │               │
+       │               │               │
+       └───────────────┴───────────────┘
+                       │
+                       ▼
+           ┌──────────────────────┐
+           │  ValidationResult    │
+           │  • Errors            │
+           │  • Warnings          │
+           │  • Info messages     │
+           └──────────┬───────────┘
+                      │
+      ┌───────────────┼───────────────┐
+      ▼               ▼               ▼
+┌───────────┐ ┌──────────────┐ ┌──────────────┐
+│   Text    │ │     YAML     │ │     JSON     │
+│ Reporter  │ │   Reporter   │ │   Reporter   │
+└───────────┘ └──────────────┘ └──────────────┘
+----
+
+=== Validator Classes
+
+==== SyntaxValidator
+
+Performs structural validation without PostScript execution:
+
+* Header format checking
+* BoundingBox validation
+* Delimiter balance
+* Token validity
+
+==== SemanticValidator
+
+Analyzes PostScript semantics:
+
+* Stack simulation
+* Graphics state tracking
+* Dictionary tracking
+* Operator coverage
+
+==== Helper Classes
+
+* *DelimiterChecker* - Validates balanced delimiters
+* *StackSimulator* - Simulates PostScript stack
+* *GraphicsStateTracker* - Tracks gsave/grestore
+* *DictionaryTracker* - Tracks dict begin/end
+
+== Reference
+
+=== Command Line Options
+
+[cols="2,3,2",options="header"]
+|===
+| Option | Description | Default
+
+| `--level=LEVEL`
+| Validation level (syntax/semantic/full)
+| semantic
+
+| `--format=FORMAT`
+| Output format (text/yaml/json)
+| text
+
+| `--verbose`
+| Show warnings and info messages
+| false
+
+| `--quiet`
+| Suppress valid file messages
+| false
+
+| `--no-color`
+| Disable colored output
+| false
+
+| `--fail-fast`
+| Stop at first error
+| false
+
+| `--eps-version=VERSION`
+| EPS version to validate (1.0/2.0/3.0)
+| none
+|===
+
+=== Message Severities
+
+[cols="2,3",options="header"]
+|===
+| Severity | Description
+
+| ERROR
+| Critical issues preventing conversion
+
+| WARNING
+| Potential problems that may affect output
+
+| INFO
+| Informational messages about file structure
+|===
+
+=== Supported File Types
+
+* `.ps` - PostScript files
+* `.eps` - Encapsulated PostScript files
+* Any text file with PostScript content
+
+== Further Reading
+
+* link:../README.adoc[PostSVG README]
+* link:ps2svg_compatibility.adoc[PS2SVG Compatibility Guide]
+* link:postscript/index.adoc[PostScript Implementation Notes]
+* link:optimization.adoc[Optimization Guide]

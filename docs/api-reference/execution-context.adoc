@@ -1,0 +1,1210 @@
+= ExecutionContext Class
+:page-nav_order: 4
+:page-parent: API Reference
+
+== Purpose
+
+The [`ExecutionContext`](../../lib/postsvg/execution_context.rb:9) class encapsulates all mutable state during PostScript execution, including the operand stack, dictionary stack, graphics state, and SVG output. It serves as the runtime environment for the interpreter.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:interpreter.adoc[Interpreter Class]
+* link:graphics-state.adoc[GraphicsState Class]
+* link:../architecture.adoc[Architecture Overview]
+
+== Concepts
+
+**Operand Stack**:: A LIFO (Last-In-First-Out) stack holding operands for PostScript operators.
+
+**Dictionary Stack**:: A stack of dictionaries providing scoped name-to-value mappings.
+
+**Graphics State**:: The current drawing parameters including color, line width, transformation matrix, clip paths, etc.
+
+**Graphics State Stack**:: A stack for saving and restoring graphics states via `gsave`/`grestore`.
+
+**Current Transformation Matrix (CTM)**:: A 2D affine transformation matrix mapping user space to device space.
+
+**Path Builder**:: An object that accumulates path commands (moveto, lineto, curveto) before rendering.
+
+== Class Overview
+
+The [`ExecutionContext`](../../lib/postsvg/execution_context.rb:9) class is defined in [`lib/postsvg/execution_context.rb`](../../lib/postsvg/execution_context.rb:1).
+
+**Responsibilities:**
+
+* Manage operand stack operations
+* Maintain dictionary stack for name resolution
+* Track graphics state and state stack
+* Build and manage current path
+* Generate SVG output elements
+* Handle coordinate transformations
+* Manage clip paths and patterns
+* Provide utility functions for SVG generation
+
+**Key Components:**
+
+* Operand stack - General-purpose data stack
+* Dictionary stack - Name/value lookup
+* Graphics state - Drawing parameters
+* Path builder - Path accumulation
+* SVG output - Generated elements
+
+**Design Pattern:**
+
+The ExecutionContext follows the **Context Object** pattern, encapsulating all runtime state in a single mutable object that's passed to command implementations.
+
+== Class Methods
+
+=== new
+
+Create a new ExecutionContext with initialized state.
+
+**Syntax:**
+
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new <1>
+----
+<1> Initialize context with default state
+
+**Returns:**
+
+New `ExecutionContext` instance with:
+
+* Empty operand stack
+* Global dictionary on dictionary stack
+* Default graphics state
+* Empty path
+* Empty SVG output
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:14-30`](../../lib/postsvg/execution_context.rb:14)
+
+**Initialization:**
+
+[source,ruby]
+----
+# Operand stack
+@stack = []
+
+# Graphics state with defaults
+@graphics_state = {
+  ctm: Matrix.new,           # Identity matrix
+  fill: "black",
+  stroke: "black",
+  stroke_width: 1,
+  line_cap: "butt",
+  line_join: "miter",
+  font: "Arial, sans-serif",
+  font_size: 12,
+  clip_stack: [],
+  # ... other properties
+}
+
+# Dictionary stack with global dict
+@dict_stack = [@global_dict]
+
+# SVG output containers
+@svg_output = { defs: [], paths: [], text: [] }
+----
+
+.Create execution context
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+context = Postsvg::ExecutionContext.new
+
+# Context is ready for use
+puts "Stack size: #{context.stack.length}"          # 0
+puts "Fill color: #{context.graphics_state[:fill]}" # "black"
+puts "Line width: #{context.graphics_state[:stroke_width]}" # 1
+----
+====
+
+== Attributes
+
+=== stack (read-only)
+
+Access the operand stack.
+
+**Returns:**
+
+Array containing stack values (bottom to top)
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:10`](../../lib/postsvg/execution_context.rb:10)
+
+.Inspect stack
+[example]
+====
+[source,ruby]
+----
+context.push(10)
+context.push(20)
+context.push(30)
+
+puts context.stack.inspect  # [10, 20, 30]
+puts "Stack depth: #{context.stack.length}"  # 3
+puts "Top element: #{context.stack.last}"    # 30
+----
+====
+
+=== graphics_state (read-only)
+
+Access the current graphics state hash.
+
+**Returns:**
+
+Hash containing graphics state properties
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:10`](../../lib/postsvg/execution_context.rb:10)
+
+**Graphics State Properties:**
+
+[cols="1,2,1"]
+|===
+| Property | Description | Default
+
+| `:ctm`
+| Current transformation matrix
+| `Matrix.new` (identity)
+
+| `:fill`
+| Fill color
+| `"black"`
+
+| `:stroke`
+| Stroke color
+| `"black"`
+
+| `:stroke_width`
+| Line width
+| `1`
+
+| `:line_cap`
+| Line cap style
+| `"butt"`
+
+| `:line_join`
+| Line join style
+| `"miter"`
+
+| `:font`
+| Font family
+| `"Arial, sans-serif"`
+
+| `:font_size`
+| Font size in points
+| `12`
+
+| `:clip_stack`
+| Array of clip paths
+| `[]`
+
+| `:dash`
+| Dash pattern
+| `nil`
+
+| `:pattern`
+| Pattern reference
+| `nil`
+
+| `:blend_mode`
+| Blend mode
+| `:normal`
+
+| `:opacity_alpha`
+| Opacity value
+| `1.0`
+|===
+
+.Access graphics state
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+# Read properties
+puts context.graphics_state[:fill]         # "black"
+puts context.graphics_state[:stroke_width] # 1
+
+# Modify properties
+context.graphics_state[:fill] = "red"
+context.graphics_state[:stroke_width] = 2.5
+
+# Access transformation matrix
+ctm = context.graphics_state[:ctm]
+puts "Matrix: a=#{ctm.a}, e=#{ctm.e}, f=#{ctm.f}"
+----
+====
+
+=== svg_output (read-only)
+
+Access the SVG output container.
+
+**Returns:**
+
+Hash with three arrays:
+
+* `:defs` - SVG definitions (patterns, gradients, clip paths)
+* `:paths` - SVG path elements
+* `:text` - SVG text elements
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:10`](../../lib/postsvg/execution_context.rb:10)
+
+.Access SVG output
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+# Add elements during interpretation...
+# (normally done by command implementations)
+
+# Inspect results
+output = context.svg_output
+puts "Definitions: #{output[:defs].length}"
+puts "Paths: #{output[:paths].length}"
+puts "Text elements: #{output[:text].length}"
+
+# Access individual elements
+output[:paths].each_with_index do |path, i|
+  puts "Path #{i}: #{path[0..50]}..."
+end
+----
+====
+
+=== current_x, current_y (read/write)
+
+Current point coordinates in user space.
+
+**Returns:**
+
+Numeric values representing current position
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:12`](../../lib/postsvg/execution_context.rb:12)
+
+.Track current point
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+# Set current point
+context.current_x = 100
+context.current_y = 200
+
+puts "Current point: (#{context.current_x}, #{context.current_y})"
+
+# Update current point (usually done by path commands)
+context.update_current_point(150, 250)
+puts "New point: (#{context.current_x}, #{context.current_y})"
+----
+====
+
+== Stack Operations
+
+=== push
+
+Push a value onto the operand stack.
+
+**Syntax:**
+
+[source,ruby]
+----
+context.push(value) <1>
+----
+<1> Push value onto top of stack
+
+**Where:**
+
+`value`:: Any Ruby object (Number, String, Array, Hash, etc.)
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:33-35`](../../lib/postsvg/execution_context.rb:33)
+
+.Stack push examples
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+# Push numbers
+context.push(42)
+context.push(3.14)
+
+# Push strings
+context.push("hello")
+
+# Push arrays
+context.push([1, 2, 3])
+
+# Push procedures
+context.push({ type: "procedure", body: [...] })
+
+puts context.stack.length  # 5
+----
+====
+
+=== pop
+
+Pop and return the top value from the stack.
+
+**Syntax:**
+
+[source,ruby]
+----
+value = context.pop <1>
+----
+<1> Pop and return top value
+
+**Returns:**
+
+The top value from stack, or `nil` if stack is empty
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:37-39`](../../lib/postsvg/execution_context.rb:37)
+
+.Stack pop examples
+[example]
+====
+[source,ruby]
+----
+context.push(10)
+context.push(20)
+context.push(30)
+
+val3 = context.pop  # 30
+val2 = context.pop  # 20
+val1 = context.pop  # 10
+
+puts "Popped: #{val3}, #{val2}, #{val1}"
+puts "Stack empty: #{context.stack.empty?}"  # true
+----
+====
+
+=== pop_number
+
+Pop a numeric value, with default fallback.
+
+**Syntax:**
+
+[source,ruby]
+----
+num = context.pop_number(default = 0) <1>
+----
+<1> Pop number with fallback to default
+
+**Where:**
+
+`default`:: (Optional) Value to return if pop fails or value is not numeric (default: 0)
+
+**Returns:**
+
+Numeric value or default
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:41-47`](../../lib/postsvg/execution_context.rb:41)
+
+.Safe number popping
+[example]
+====
+[source,ruby]
+----
+context.push(42)
+context.push("not a number")
+context.push(3.14)
+
+num1 = context.pop_number      # 3.14 (numeric)
+num2 = context.pop_number      # 0 (string, uses default)
+num3 = context.pop_number(100) # 42 (numeric)
+num4 = context.pop_number(100) # 100 (empty stack, uses default)
+
+puts "Numbers: #{num1}, #{num2}, #{num3}, #{num4}"
+----
+====
+
+=== peek
+
+Look at the top value without removing it.
+
+**Syntax:**
+
+[source,ruby]
+----
+value = context.peek <1>
+----
+<1> Return top value without popping
+
+**Returns:**
+
+The top value from stack, or `nil` if stack is empty
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:49-51`](../../lib/postsvg/execution_context.rb:49)
+
+.Peek at stack
+[example]
+====
+[source,ruby]
+----
+context.push(100)
+
+top = context.peek
+puts "Top value: #{top}"      # 100
+puts "Stack size: #{context.stack.length}"  # 1 (still there)
+
+context.pop
+puts "Stack size: #{context.stack.length}"  # 0 (now removed)
+----
+====
+
+== Graphics State Operations
+
+=== save_graphics_state
+
+Save current graphics state (gsave).
+
+**Syntax:**
+
+[source,ruby]
+----
+context.save_graphics_state <1>
+----
+<1> Push current state onto graphics state stack
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:54-66`](../../lib/postsvg/execution_context.rb:54)
+
+**Saved State:**
+
+* Complete graphics state (deep copy)
+* Current point coordinates
+* Current CTM
+* Path builder state
+
+.Save and modify state
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+# Set initial state
+context.graphics_state[:fill] = "red"
+context.graphics_state[:stroke_width] = 2
+
+# Save state
+context.save_graphics_state
+
+# Modify state
+context.graphics_state[:fill] = "blue"
+context.graphics_state[:stroke_width] = 5
+
+puts "Current fill: #{context.graphics_state[:fill]}"  # "blue"
+
+# Restore state
+context.restore_graphics_state
+
+puts "Restored fill: #{context.graphics_state[:fill]}"  # "red"
+puts "Restored width: #{context.graphics_state[:stroke_width]}"  # 2
+----
+====
+
+=== restore_graphics_state
+
+Restore previously saved graphics state (grestore).
+
+**Syntax:**
+
+[source,ruby]
+----
+context.restore_graphics_state <1>
+----
+<1> Pop and restore state from graphics state stack
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:68-77`](../../lib/postsvg/execution_context.rb:68)
+
+**Restored State:**
+
+* Graphics state properties
+* Current point
+* CTM
+* Path builder
+
+.Nested save/restore
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+context.graphics_state[:fill] = "red"
+context.save_graphics_state  # Save "red"
+
+context.graphics_state[:fill] = "green"
+context.save_graphics_state  # Save "green"
+
+context.graphics_state[:fill] = "blue"
+# Current: "blue"
+
+context.restore_graphics_state
+# Restored: "green"
+
+context.restore_graphics_state
+# Restored: "red"
+
+puts context.graphics_state[:fill]  # "red"
+----
+====
+
+== Dictionary Operations
+
+=== define
+
+Define a name in the current dictionary.
+
+**Syntax:**
+
+[source,ruby]
+----
+context.define(key, value) <1>
+----
+<1> Store key-value pair in current dictionary
+
+**Where:**
+
+`key`:: Name to define (converted to string)
+`value`:: Value to associate with name
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:92-94`](../../lib/postsvg/execution_context.rb:92)
+
+.Define variables
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+# Define variables
+context.define("x", 100)
+context.define("y", 200)
+context.define("radius", 50)
+
+# Define procedures
+context.define("myproc", {
+  type: "procedure",
+  body: [...]
+})
+
+# Look up later
+x = context.lookup("x")
+puts "x = #{x}"  # 100
+----
+====
+
+=== lookup
+
+Look up a name in the dictionary stack.
+
+**Syntax:**
+
+[source,ruby]
+----
+value = context.lookup(name) <1>
+----
+<1> Search dictionary stack for name
+
+**Where:**
+
+`name`:: Name to look up (string)
+
+**Returns:**
+
+Value if found, `nil` otherwise
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:96-101`](../../lib/postsvg/execution_context.rb:96)
+
+**Lookup Order:**
+
+Searches from top to bottom of dictionary stack (most recent first).
+
+.Dictionary lookup
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+# Define in global scope
+context.define("global_var", 100)
+
+# Create new dictionary scope
+context.push_dict({})
+context.define("local_var", 200)
+
+# Both accessible
+puts context.lookup("global_var")  # 100
+puts context.lookup("local_var")   # 200
+
+# Pop dictionary
+context.pop_dict
+
+# Only global accessible
+puts context.lookup("global_var")  # 100
+puts context.lookup("local_var")   # nil
+----
+====
+
+=== push_dict
+
+Push a new dictionary onto the dictionary stack.
+
+**Syntax:**
+
+[source,ruby]
+----
+context.push_dict(dict) <1>
+----
+<1> Add dictionary to stack
+
+**Where:**
+
+`dict`:: Hash to push (creates empty hash if not a Hash)
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:84-86`](../../lib/postsvg/execution_context.rb:84)
+
+=== pop_dict
+
+Pop a dictionary from the dictionary stack.
+
+**Syntax:**
+
+[source,ruby]
+----
+context.pop_dict <1>
+----
+<1> Remove top dictionary (preserves at least one)
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:88-90`](../../lib/postsvg/execution_context.rb:88)
+
+== Path Operations
+
+=== update_current_point
+
+Update the current point coordinates.
+
+**Syntax:**
+
+[source,ruby]
+----
+context.update_current_point(x, y) <1>
+----
+<1> Set current point and last text position
+
+**Where:**
+
+`x`:: X coordinate
+`y`:: Y coordinate
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:104-108`](../../lib/postsvg/execution_context.rb:104)
+
+=== reset_path
+
+Reset the path builder to empty state.
+
+**Syntax:**
+
+[source,ruby]
+----
+context.reset_path <1>
+----
+<1> Clear current path
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:110-112`](../../lib/postsvg/execution_context.rb:110)
+
+=== new_path
+
+Alias for reset_path (PostScript `newpath` operator).
+
+**Syntax:**
+
+[source,ruby]
+----
+context.new_path <1>
+----
+<1> Start new path
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:114-116`](../../lib/postsvg/execution_context.rb:114)
+
+=== path_to_svg
+
+Convert current path to SVG path data string.
+
+**Syntax:**
+
+[source,ruby]
+----
+path_data = context.path_to_svg <1>
+----
+<1> Generate SVG `d` attribute value
+
+**Returns:**
+
+String containing SVG path data (e.g., `"M 10,20 L 30,40"`)
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:122-124`](../../lib/postsvg/execution_context.rb:122)
+
+.Path generation
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+# Build path using path_builder
+context.path_builder.move_to(10, 20)
+context.path_builder.line_to(30, 40)
+context.path_builder.line_to(50, 30)
+context.path_builder.close_path
+
+# Convert to SVG
+svg_path = context.path_to_svg
+puts svg_path  # "M 10,20 L 30,40 L 50,30 Z"
+----
+====
+
+== SVG Output Operations
+
+=== flush_path
+
+Render current path to SVG and add to output.
+
+**Syntax:**
+
+[source,ruby]
+----
+context.flush_path(mode, fill_id = nil, bbox = nil) <1>
+----
+<1> Generate SVG path element and clear path
+
+**Where:**
+
+`mode`:: Hash specifying render mode
+* `:fill` - Boolean, whether to fill
+* `:stroke` - Boolean, whether to stroke
+
+`fill_id`:: (Optional) Pattern or gradient ID for fill
+
+`bbox`:: (Optional) Bounding box for clipping
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:305-320`](../../lib/postsvg/execution_context.rb:305)
+
+.Flush path examples
+[example]
+====
+[source,ruby]
+----
+# Build a path
+context.path_builder.move_to(10, 10)
+context.path_builder.line_to(90, 10)
+context.path_builder.line_to(90, 90)
+context.path_builder.close_path
+
+# Render with fill only
+context.flush_path({ fill: true, stroke: false })
+
+# Result added to svg_output[:paths]
+puts context.svg_output[:paths].last
+# <path d="M 10,10 L 90,10 L 90,90 Z" fill="black" stroke="none" />
+----
+====
+
+=== emit_svg_path
+
+Generate SVG path element string.
+
+**Syntax:**
+
+[source,ruby]
+----
+path_element = context.emit_svg_path(d, mode, fill_id = nil, bbox = nil) <1>
+----
+<1> Create SVG path element with current graphics state
+
+**Where:**
+
+`d`:: SVG path data string
+`mode`:: Hash with `:fill` and `:stroke` booleans
+`fill_id`:: (Optional) Pattern/gradient reference
+`bbox`:: (Optional) Bounding box
+
+**Returns:**
+
+String containing complete SVG path element
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:246-303`](../../lib/postsvg/execution_context.rb:246)
+
+=== add_def
+
+Add a definition element to SVG defs.
+
+**Syntax:**
+
+[source,ruby]
+----
+context.add_def(def_element) <1>
+----
+<1> Add to SVG definitions section
+
+**Where:**
+
+`def_element`:: String containing SVG definition (pattern, gradient, clipPath, etc.)
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:215-217`](../../lib/postsvg/execution_context.rb:215)
+
+.Add definitions
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+# Add gradient definition
+gradient = <<~SVG
+  <linearGradient id="grad1">
+    <stop offset="0%" stop-color="red"/>
+    <stop offset="100%" stop-color="blue"/>
+  </linearGradient>
+SVG
+
+context.add_def(gradient.strip)
+
+# Add clip path
+clip = '<clipPath id="clip1"><path d="..."/></clipPath>'
+context.add_def(clip)
+
+# Definitions will be included in final SVG
+puts context.svg_output[:defs].length  # 2
+----
+====
+
+== Utility Methods
+
+=== num_fmt
+
+Format a number for SVG output.
+
+**Syntax:**
+
+[source,ruby]
+----
+formatted = context.num_fmt(number) <1>
+----
+<1> Format number to minimal string representation
+
+**Where:**
+
+`number`:: Numeric value to format
+
+**Returns:**
+
+String representation with:
+
+* Integers as plain numbers: `10`
+* Floats with up to 6 decimals, trailing zeros removed: `3.14`
+* Special values as `"0"`: NaN, Infinity, nil
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:220-235`](../../lib/postsvg/execution_context.rb:220)
+
+.Number formatting
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+puts context.num_fmt(10)        # "10"
+puts context.num_fmt(10.0)      # "10"
+puts context.num_fmt(10.5)      # "10.5"
+puts context.num_fmt(3.14159)   # "3.14159"
+puts context.num_fmt(1.00000)   # "1"
+puts context.num_fmt(0.1 + 0.2) # "0.3"
+puts context.num_fmt(nil)       # "0"
+puts context.num_fmt(Float::NAN) # "0"
+----
+====
+
+=== escape_xml
+
+Escape string for XML/SVG output.
+
+**Syntax:**
+
+[source,ruby]
+----
+escaped = context.escape_xml(string) <1>
+----
+<1> Escape XML special characters
+
+**Where:**
+
+`string`:: String to escape
+
+**Returns:**
+
+String with XML entities:
+
+* `&` → `&amp;`
+* `<` → `&lt;`
+* `>` → `&gt;`
+* `"` → `&quot;`
+* `'` → `&#39;`
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:237-244`](../../lib/postsvg/execution_context.rb:237)
+
+.XML escaping
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+text = "Text with <tags> & \"quotes\""
+escaped = context.escape_xml(text)
+
+puts escaped
+# "Text with &lt;tags&gt; &amp; &quot;quotes&quot;"
+
+# Safe for use in SVG
+svg_text = "<text>#{escaped}</text>"
+----
+====
+
+== ID Generation
+
+=== next_clippath_id
+
+Generate unique clipPath ID.
+
+**Syntax:**
+
+[source,ruby]
+----
+id = context.next_clippath_id <1>
+----
+<1> Get next clipPath ID (auto-increments)
+
+**Returns:**
+
+Integer ID value
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:197-201`](../../lib/postsvg/execution_context.rb:197)
+
+=== next_path_id
+
+Generate unique path ID.
+
+**Syntax:**
+
+[source,ruby]
+----
+id = context.next_path_id <1>
+----
+<1> Get next path ID (auto-increments)
+
+**Returns:**
+
+Integer ID value
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:203-207`](../../lib/postsvg/execution_context.rb:203)
+
+=== next_id
+
+Generate generic unique ID.
+
+**Syntax:**
+
+[source,ruby]
+----
+id = context.next_id <1>
+----
+<1> Get next general-purpose ID (auto-increments)
+
+**Returns:**
+
+Integer ID value
+
+**Source:**
+
+[`lib/postsvg/execution_context.rb:209-213`](../../lib/postsvg/execution_context.rb:209)
+
+.ID generation
+[example]
+====
+[source,ruby]
+----
+context = Postsvg::ExecutionContext.new
+
+clip_id1 = context.next_clippath_id  # 2
+clip_id2 = context.next_clippath_id  # 4
+path_id1 = context.next_path_id      # 2
+path_id2 = context.next_path_id      # 4
+id1 = context.next_id                # 0
+id2 = context.next_id                # 1
+
+# Use in SVG
+clip_def = "<clipPath id=\"clipPath#{clip_id1}\">...</clipPath>"
+path = "<path id=\"path#{path_id1}\" .../>"
+----
+====
+
+## Thread Safety
+
+The `ExecutionContext` class is **not thread-safe**. Each execution thread must have its own context instance.
+
+.Multi-threaded usage
+[example]
+====
+[source,ruby]
+----
+# Bad: Sharing context
+context = Postsvg::ExecutionContext.new
+threads = 5.times.map do
+  Thread.new { execute_with(context) }  # NOT SAFE
+end
+
+# Good: Each thread has own context
+threads = 5.times.map do
+  Thread.new do
+    context = Postsvg::ExecutionContext.new
+    execute_with(context)
+  end
+end
+----
+====
+
+== Best Practices
+
+=== State Management
+
+**Always save before modifying:**
+
+[source,ruby]
+----
+# Save state
+context.save_graphics_state
+
+# Modify
+context.graphics_state[:fill] = "red"
+# ... draw things ...
+
+# Restore
+context.restore_graphics_state
+----
+
+**Use dictionary scopes:**
+
+[source,ruby]
+----
+# Create local scope
+context.push_dict({})
+context.define("local_var", value)
+
+# Use local definitions
+# ...
+
+# Clean up
+context.pop_dict
+----
+
+=== Error Handling
+
+**Check stack before popping:**
+
+[source,ruby]
+----
+if context.stack.length >= 2
+  y = context.pop
+  x = context.pop
+else
+  raise "Insufficient operands"
+end
+----
+
+**Use pop_number for safety:**
+
+[source,ruby]
+----
+# Safe number retrieval
+value = context.pop_number(0)  # Default to 0 if not numeric
+----
+
+== Next Steps
+
+* Review link:interpreter.adoc[Interpreter Class] for execution flow
+* Learn about link:graphics-state.adoc[GraphicsState] for state details
+* See link:../architecture.adoc[Architecture] for system design
+* Check link:converter.adoc[Converter Class] for high-level API
+
+== Bibliography
+
+* link:interpreter.adoc[Interpreter Class Documentation]
+* link:graphics-state.adoc[GraphicsState Documentation]
+* link:converter.adoc[Converter Class Documentation]
+* link:../architecture.adoc[Architecture Overview]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual]

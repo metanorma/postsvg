@@ -1,0 +1,94 @@
+= Getting Started
+:page-nav_order: 2
+
+== Purpose
+
+This guide helps you get started with Postsvg, from installation through your first successful PostScript to SVG conversion.
+
+Whether you're converting a single file or processing batches, validating PostScript documents, or integrating Postsvg into your application, this section provides the foundational knowledge you need.
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:api-reference.adoc[API Reference]
+* link:cli-reference.adoc[CLI Reference]
+* link:https://github.com/metanorma/postsvg[GitHub Repository]
+
+== Concepts
+
+**PostScript**:: A page description language used for printing and graphics. PostScript files contain commands that describe how to draw vector graphics.
+
+**EPS (Encapsulated PostScript)**:: A subset of PostScript designed for embedding graphics in documents. EPS files include a BoundingBox comment that defines the graphic's dimensions.
+
+**SVG (Scalable Vector Graphics)**:: An XML-based vector graphics format supported by all modern web browsers. SVG can scale to any size without loss of quality.
+
+**Conversion Pipeline**:: The process of reading PostScript commands, interpreting them, and generating equivalent SVG markup.
+
+== Getting Started Topics
+
+link:getting-started/installation.adoc[**Installation**]::
+How to install Postsvg using RubyGems or Bundler, system requirements, and verifying your installation.
+
+link:getting-started/basic-usage.adoc[**Basic Usage**]::
+Convert your first PostScript file using both the Ruby API and command-line interface.
+
+link:getting-started/first-conversion.adoc[**First Conversion Tutorial**]::
+Step-by-step walkthrough of converting a PostScript file to SVG, understanding the output, and troubleshooting common issues.
+
+link:getting-started/common-workflows.adoc[**Common Workflows**]::
+Typical usage patterns including batch conversion, validation workflows, and integration with build systems.
+
+== Quick Reference
+
+=== Installation
+
+[source,sh]
+----
+# Install from RubyGems
+gem install postsvg
+
+# Or add to Gemfile
+gem 'postsvg'
+----
+
+=== Ruby API
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Convert content
+svg = Postsvg.convert(ps_content)
+
+# Convert file
+Postsvg.convert_file('input.eps', 'output.svg')
+----
+
+=== Command Line
+
+[source,sh]
+----
+# Convert single file
+postsvg convert input.eps output.svg
+
+# Batch convert directory
+postsvg batch ps_files/ svg_files/
+
+# Validate file
+postsvg check document.ps
+----
+
+== Next Steps
+
+After completing the getting started guides, explore:
+
+* link:concepts.adoc[Core Concepts] - Understand how Postsvg works internally
+* link:cli-reference.adoc[CLI Reference] - Complete command-line reference
+* link:api-reference.adoc[API Reference] - Detailed Ruby API documentation
+* link:postscript.adoc[PostScript Language] - Learn about supported PostScript operators
+
+== Bibliography
+
+* link:https://rubygems.org/gems/postsvg[Postsvg on RubyGems]
+* link:getting-started/installation.adoc[Installation Guide]
+* link:getting-started/basic-usage.adoc[Basic Usage Guide]

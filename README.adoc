@@ -1,9 +1,7 @@
 = Postsvg
 
-image:https://img.shields.io/gem/v/postsvg.svg[Gem Version,
-link=https://rubygems.org/gems/postsvg]
-image:https://github.com/metanorma/postsvg/actions/workflows/test.yml/badge.svg[Build Status,
-link=https://github.com/metanorma/postsvg/actions/workflows/test.yml]
+image:https://img.shields.io/gem/v/postsvg.svg[Gem Version,link=https://rubygems.org/gems/postsvg]
+image:https://github.com/metanorma/postsvg/actions/workflows/test.yml/badge.svg[Build Status,link=https://github.com/metanorma/postsvg/actions/workflows/test.yml]
 image:https://img.shields.io/github/license/metanorma/postsvg.svg[License]
 
 == Purpose
@@ -23,6 +21,15 @@ This library is particularly useful for applications that need to:
 * Process vector graphics without external dependencies
 * Generate SVG from PostScript programmatically
 * Work with EPS files in pure Ruby environments
+== Documentation
+
+📚 **https://metanorma.github.io/postsvg[Complete Documentation]** - Comprehensive guides, API reference, and tutorials
+
+* link:https://metanorma.github.io/postsvg/getting-started.html[Getting Started Guide]
+* link:https://metanorma.github.io/postsvg/api-reference.html[API Reference]
+* link:https://metanorma.github.io/postsvg/cli-reference.html[CLI Reference]
+* link:https://metanorma.github.io/postsvg/quick-reference.html[Quick Reference]
+
 
 == Features
 
@@ -34,6 +41,10 @@ This library is particularly useful for applications that need to:
   documentation and implementation
 * <<architecture,Pure Ruby architecture>> - No external dependencies,
   Parslet-based parser
+* <<svg-optimization,SVG optimization>> - Automatic deduplication of
+  clipPath elements for efficient output
+* <<test-coverage,Comprehensive test coverage>> - 90+ core tests with
+  100% pass rate on critical paths
 
 == Architecture
 
@@ -325,6 +336,258 @@ Output:
 postsvg version 0.1.0
 ----
 ====
+
+== File validation
+
+[[file-validation]]
+
+=== General
+
+Postsvg includes a comprehensive validation tool for checking PostScript
+and EPS files. The validator performs syntax checking, semantic
+validation, and optional full conversion testing to ensure files are
+well-formed and can be successfully converted.
+
+The validator is particularly useful for:
+
+* Verifying PostScript/EPS file integrity before conversion
+* Identifying syntax errors and structural issues
+* Validating compliance with PostScript standards
+* Integrating quality checks into CI/CD pipelines
+
+=== Basic validation
+
+Syntax:
+
+[source,sh]
+----
+postsvg check FILE... <1>
+----
+<1> Validate one or more PostScript or EPS files
+
+Where,
+
+`FILE`:: Path to PostScript (.ps) or EPS (.eps) file(s) to validate.
+Multiple files can be specified.
+
+Returns:: Exit code 0 if all files are valid, 1 if any file has errors.
+
+.Validating PostScript files
+[example]
+[source,sh]
+----
+# Validate a single file
+postsvg check document.ps
+
+# Validate multiple files
+postsvg check file1.ps file2.eps file3.ps
+
+# Validate all PS files in directory
+postsvg check *.ps
+----
+
+The validator performs semantic-level validation by default, checking
+syntax, stack balance, and graphics state management.
+
+=== Validation levels
+
+Syntax:
+
+[source,sh]
+----
+postsvg check --level=LEVEL FILE... <1>
+----
+<1> Validate with specified level: syntax, semantic, or full
+
+Where,
+
+`LEVEL`:: One of:
+* `syntax` - Fast syntax-only validation (header, delimiters,
+  tokenization)
+* `semantic` - Default level (syntax + stack/state checking)
+* `full` - Strictest validation (semantic + complete conversion test)
+
+.Using different validation levels
+[example]
+[source,sh]
+----
+# Fast syntax-only check
+postsvg check --level=syntax document.ps
+
+# Default semantic validation
+postsvg check --level=semantic document.ps
+
+# Full validation with conversion test
+postsvg check --level=full document.ps
+----
+
+Syntax validation is fastest but only checks basic file structure.
+Semantic validation adds stack and state checking. Full validation
+attempts complete conversion and is most thorough.
+
+=== Output formats
+
+Syntax:
+
+[source,sh]
+----
+postsvg check --format=FORMAT FILE... <1>
+----
+<1> Output validation results in specified format
+
+Where,
+
+`FORMAT`:: One of:
+* `text` - Human-readable colored console output (default)
+* `yaml` - YAML structured format
+* `json` - JSON structured format
+
+.Output format examples
+[example]
+[source,sh]
+----
+# Default text output with colors
+postsvg check document.ps
+
+# YAML output
+postsvg check --format=yaml document.ps
+
+# JSON output for programmatic parsing
+postsvg check --format=json document.ps
+
+# JSON output without colors (for CI)
+postsvg check --format=json --no-color document.ps
+----
+
+Text format provides human-readable output with color-coded status
+indicators. YAML and JSON formats are useful for programmatic processing
+or integration with other tools.
+
+=== Validation options
+
+The validator supports additional options for controlling behavior and
+output:
+
+`--verbose`:: Show warnings and info messages in addition to errors
+`--quiet`:: Suppress output for valid files (only show errors)
+`--no-color`:: Disable colored output
+`--fail-fast`:: Stop validation at first error
+`--eps-version=VERSION`:: Validate EPS version (e.g., `3.0`)
+
+.Using validation options
+[example]
+[source,sh]
+----
+# Verbose output with all details
+postsvg check --verbose document.eps
+
+# Quiet mode - only show errors
+postsvg check --quiet *.ps
+
+# Stop at first error
+postsvg check --fail-fast file1.ps file2.ps file3.ps
+
+# Validate specific EPS version
+postsvg check --eps-version=3.0 diagram.eps
+----
+
+== SVG optimization
+
+[[svg-optimization]]
+
+=== General
+
+Postsvg automatically optimizes SVG output to produce smaller, more
+efficient files while maintaining visual fidelity to the original
+PostScript graphics.
+
+=== ClipPath deduplication
+
+PostScript files often contain repeated clipping operations with
+identical paths. Postsvg automatically detects and deduplicates these
+clipPath definitions, significantly reducing SVG file size for documents
+with repeated clipping operations.
+
+.ClipPath deduplication example
+[example]
+Instead of generating multiple identical clipPath definitions:
+
+[source,xml]
+----
+<defs>
+  <clipPath id="clipPath2">
+    <path d="M 0 0 L 100 100"/>
+  </clipPath>
+  <clipPath id="clipPath3">
+    <path d="M 0 0 L 100 100"/>
+  </clipPath>
+  <clipPath id="clipPath4">
+    <path d="M 0 0 L 100 100"/>
+  </clipPath>
+</defs>
+----
+
+Postsvg generates a single definition and reuses it:
+
+[source,xml]
+----
+<defs>
+  <clipPath id="clipPath2">
+    <path d="M 0 0 L 100 100"/>
+  </clipPath>
+</defs>
+<path clip-path="url(#clipPath2)" .../>
+<path clip-path="url(#clipPath2)" .../>
+<path clip-path="url(#clipPath2)" .../>
+----
+
+This optimization is automatic and requires no configuration.
+
+== Test coverage
+
+[[test-coverage]]
+
+=== General
+
+Postsvg maintains comprehensive test coverage to ensure reliability and
+correctness of PostScript to SVG conversion.
+
+=== Core test suite
+
+The core test suite consists of 90+ tests covering execution context and
+integration testing:
+
+* **Execution context tests (84 tests)** - Unit tests for stack
+  operations, graphics state management, dictionary operations, path
+  operations, helper methods, SVG generation, and clipPath deduplication
+* **Integration tests (6 tests)** - End-to-end tests using real
+  PostScript files from ps2svg and vectory test suites
+
+All core tests maintain 100% pass rate, ensuring critical functionality
+remains stable.
+
+=== Running tests
+
+Run the full test suite:
+
+[source,sh]
+----
+bundle exec rspec
+----
+
+Run only core tests:
+
+[source,sh]
+----
+bundle exec rspec spec/postsvg/execution_context_spec.rb spec/postsvg/integration_spec.rb
+----
+
+Run with documentation format:
+
+[source,sh]
+----
+bundle exec rspec --format documentation
+----
 
 == PostScript language support
 

@@ -1,0 +1,1125 @@
+= Interpreter Stage
+:page-nav_order: 3
+
+== Purpose
+
+This document describes the Interpreter Stage of Postsvg's conversion pipeline, which executes PostScript commands and builds the SVG representation. Understanding the interpreter helps developers comprehend command execution, stack management, dictionary operations, and how PostScript semantics are implemented.
+
+== References
+
+* link:../architecture.adoc[Architecture Overview]
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:parser-stage.adoc[Parser Stage]
+* link:command-registry.adoc[Command Registry]
+* link:graphics-state-model.adoc[Graphics State Model]
+* link:../api-reference/interpreter.adoc[Interpreter API Reference]
+* link:../api-reference/execution-context.adoc[ExecutionContext API Reference]
+
+== Concepts
+
+**Stack-Based Execution**:: PostScript uses an operand stack for passing parameters to operators.
+
+**Command Pattern**:: Each PostScript operator is implemented as a command object.
+
+**Execution Context**:: Encapsulates all mutable state during execution (stack, dictionaries, graphics state).
+
+**Dictionary Stack**:: Maintains name-to-value bindings with nested scoping.
+
+**Procedure Execution**:: Executable arrays (procedures) are expanded inline for execution.
+
+== Interpreter Architecture
+
+=== Class Structure
+
+**Location:** [`lib/postsvg/interpreter.rb`](../../lib/postsvg/interpreter.rb:9)
+
+**Responsibilities:**
+
+* Process tokens sequentially
+* Execute PostScript operators
+* Manage execution context
+* Parse composite data structures
+* Generate final SVG document
+
+=== Key Components
+
+**Interpreter**:: Main execution loop and token dispatcher.
+
+**ExecutionContext**:: Manages operand stack, dictionary stack, graphics state.
+
+**Command Registry**:: Maps operator names to command implementations.
+
+**Graphics State**:: Tracks path, colors, transformations, and rendering parameters.
+
+=== Initialization
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:12
+def initialize(strict_mode: false)
+  @context = ExecutionContext.new
+  @registry = Commands::Registry.default
+  @context.registry = @registry
+  @bbox = nil
+  @strict_mode = strict_mode
+end
+----
+
+**Initialization Steps:**
+
+1. Create fresh [`ExecutionContext`](../../lib/postsvg/execution_context.rb:9)
+2. Load default command registry
+3. Configure strict/lenient error handling
+4. Initialize state tracking variables
+
+== Main Execution Loop
+
+=== Interpret Method
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:20
+def interpret(tokens, bounding_box = nil)
+  @bbox = bounding_box
+  @context.instance_variable_set(:@bbox, bounding_box)
+  i = 0
+
+  while i < tokens.length
+    token = tokens[i]
+
+    case token.type
+    when "number"
+      # Push number onto operand stack
+      num = parse_number(token.value)
+      @context.push(num)
+
+    when "string", "hexstring", "name"
+      # Push literal onto stack
+      @context.push(token.value)
+
+    when "brace"
+      # Parse procedure: { ... }
+      if token.value == "{"
+        proc_result = parse_procedure(tokens, i + 1)
+        @context.push({ type: "procedure", body: proc_result[:procedure] })
+        i = proc_result[:next_index] - 1
+      end
+
+    when "bracket"
+      # Parse array: [ ... ]
+      if token.value == "["
+        array_result = parse_array(tokens, i + 1)
+        @context.push(array_result[:array])
+        i = array_result[:next_index] - 1
+      end
+
+    when "dict"
+      # Parse dictionary: << ... >>
+      if token.value == "<<"
+        dict_result = parse_dict(tokens, i + 1)
+        @context.push(dict_result[:dict])
+        i = dict_result[:next_index] - 1
+      end
+
+    when "operator"
+      # Execute PostScript operator
+      execute_operator(token.value, tokens, i)
+    end
+
+    i += 1
+  end
+
+  # Generate final SVG document
+  svg_doc = generate_svg_document(@context.svg_output, @bbox)
+  { svg: svg_doc, elements: @context.svg_output[:paths] + @context.svg_output[:text] }
+end
+----
+
+=== Token Dispatching
+
+**Token Type → Action Mapping:**
+
+[cols="1,2,2"]
+|===
+|Token Type |Action |Example
+
+|`number`
+|Parse and push onto stack
+|`42` → Push 42
+
+|`string`/`name`
+|Push literal onto stack
+|`/Helvetica` → Push "Helvetica"
+
+|`brace`
+|Parse procedure, push executable array
+|`{ 1 add }` → Push procedure object
+
+|`bracket`
+|Parse array, push array object
+|`[1 2 3]` → Push [1, 2, 3]
+
+|`dict`
+|Parse dictionary, push dict object
+|`<< /Type /Pattern >>` → Push hash
+
+|`operator`
+|Look up and execute command
+|`moveto` → Execute MoveTo command
+|===
+
+== Number Parsing
+
+=== Integer vs Float Detection
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:29
+num_str = token.value
+num = if num_str.include?(".") || num_str.match?(/[eE]/)
+        num_str.to_f  # Float
+      else
+        num_str.to_i  # Integer
+      end
+@context.push(num)
+----
+
+**Decision Rules:**
+
+* Contains `.` → Convert to Float
+* Contains `e` or `E` → Convert to Float (scientific notation)
+* Otherwise → Convert to Integer
+
+**Examples:**
+
+[source]
+----
+Token("42")      → 42 (Integer)
+Token("3.14")    → 3.14 (Float)
+Token("1.5e-3")  → 0.0015 (Float)
+Token("100.")    → 100.0 (Float)
+----
+
+**Rationale:** Preserving integer vs float distinction ensures PostScript semantics are maintained (e.g., integer division vs float division).
+
+== Composite Data Structure Parsing
+
+=== Procedure Parsing
+
+**Syntax:** `{ tokens... }`
+
+**Purpose:** Create executable array (deferred execution).
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:77
+def parse_procedure(tokens, start_index)
+  procedure = []
+  depth = 1
+  index = start_index
+
+  while index < tokens.length && depth > 0
+    token = tokens[index]
+
+    # Track nesting depth
+    if token.type == "brace" && token.value == "{"
+      depth += 1
+    elsif token.type == "brace" && token.value == "}"
+      depth -= 1
+      return { procedure: procedure, next_index: index + 1 } if depth == 0
+    end
+
+    # Add token to procedure body if inside braces
+    procedure << token if depth > 0
+    index += 1
+  end
+
+  { procedure: procedure, next_index: index }
+end
+----
+
+**Features:**
+
+* **Nested Procedures:** Tracks depth for `{ { nested } }`
+* **Token Preservation:** Stores raw tokens for later execution
+* **Boundary Detection:** Returns position after closing `}`
+
+**Example:**
+
+[source,postscript]
+----
+{ 10 20 moveto 30 40 lineto stroke }
+----
+
+**Result:**
+
+[source,ruby]
+----
+{
+  type: "procedure",
+  body: [
+    Token(:number, "10"),
+    Token(:number, "20"),
+    Token(:operator, "moveto"),
+    Token(:number, "30"),
+    Token(:number, "40"),
+    Token(:operator, "lineto"),
+    Token(:operator, "stroke")
+  ]
+}
+----
+
+=== Array Parsing
+
+**Syntax:** `[ elements... ]`
+
+**Purpose:** Create array of values (immediately evaluated).
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:97
+def parse_array(tokens, start_index)
+  array = []
+  index = start_index
+
+  while index < tokens.length
+    token = tokens[index]
+
+    # Check for array end
+    return { array: array, next_index: index + 1 } if token.value == "]"
+
+    # Parse and add element
+    if token.type == "number"
+      array << parse_number(token.value)
+    elsif ["string", "name"].include?(token.type)
+      array << token.value
+    end
+
+    index += 1
+  end
+
+  { array: array, next_index: index }
+end
+----
+
+**Features:**
+
+* **Immediate Evaluation:** Elements are parsed during array construction
+* **Type Preservation:** Numbers, strings, names are converted to Ruby types
+* **Flat Structure:** Arrays don't contain nested tokens (unlike procedures)
+
+**Example:**
+
+[source,postscript]
+----
+[1 2.5 /FontName (Hello)]
+----
+
+**Result:**
+
+[source,ruby]
+----
+[1, 2.5, "FontName", "Hello"]
+----
+
+=== Dictionary Parsing
+
+**Syntax:** `<< /key value... >>`
+
+**Purpose:** Create key-value dictionary.
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:125
+def parse_dict(tokens, start_index)
+  dict = {}
+  index = start_index
+  current_key = nil
+
+  while index < tokens.length
+    token = tokens[index]
+
+    # Check for dictionary end
+    return { dict: dict, next_index: index + 1 } if token.value == ">>"
+
+    # Process key-value pairs
+    if token.type == "name"
+      current_key = token.value
+    elsif current_key
+      # Parse value for current key
+      dict[current_key] = parse_dict_value(token, tokens, index)
+      current_key = nil
+    end
+
+    index += 1
+  end
+
+  { dict: dict, next_index: index }
+end
+----
+
+**Features:**
+
+* **Key-Value Pairing:** Alternates between keys (names) and values
+* **Nested Structures:** Supports nested arrays, dicts, procedures
+* **Type Conversion:** Values are parsed based on token type
+
+**Example:**
+
+[source,postscript]
+----
+<< /Type /Pattern /Matrix [1 0 0 1 0 0] /PaintProc { pop } >>
+----
+
+**Result:**
+
+[source,ruby]
+----
+{
+  "Type" => "Pattern",
+  "Matrix" => [1, 0, 0, 1, 0, 0],
+  "PaintProc" => { type: "procedure", body: [Token(:operator, "pop")] }
+}
+----
+
+== Operator Execution
+
+=== Execute Operator Method
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:177
+def execute_operator(op, tokens, current_index)
+  # Step 1: Check dictionary stack for user-defined operators
+  dict_val = @context.lookup(op)
+  if dict_val
+    if dict_val.is_a?(Hash) && dict_val[:type] == "procedure"
+      # Execute user-defined procedure
+      execute_procedure(tokens, dict_val[:body], current_index)
+    else
+      # Push literal value
+      @context.push(dict_val)
+    end
+    return
+  end
+
+  # Step 2: Look up built-in command in registry
+  command = @registry.get(op)
+  if command
+    # Execute command
+    begin
+      command.call(@context)
+    rescue StandardError => e
+      handle_execution_error(op, e)
+    end
+  elsif @strict_mode
+    # Unknown operator in strict mode
+    raise UnsupportedOperatorError, "Unknown PostScript operator: #{op}"
+  else
+    # Add comment in lenient mode
+    @context.svg_output[:paths] << "<!-- Unhandled operator: #{op} -->"
+  end
+end
+----
+
+**Execution Priority:**
+
+1. **User-Defined:** Check dictionary stack first
+2. **Built-In:** Look up in command registry
+3. **Error Handling:** Strict mode raises, lenient mode comments
+
+=== User-Defined Operators
+
+**Definition:**
+
+[source,postscript]
+----
+/myop { 2 mul } def
+5 myop  % Executes { 2 mul } with 5 on stack → 10
+----
+
+**Execution:**
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:215
+def execute_procedure(tokens, proc_tokens, current_index)
+  # Insert procedure tokens into token stream
+  tokens.insert(current_index + 1, *proc_tokens)
+end
+----
+
+**Inline Expansion:** Procedure tokens are inserted directly into the token stream for immediate execution.
+
+=== Built-In Command Execution
+
+**Registry Lookup:**
+
+[source,ruby]
+----
+command = @registry.get("moveto")
+# Returns instance of Commands::Path::MoveTo
+----
+
+**Command Interface:**
+
+[source,ruby]
+----
+class Commands::Path::MoveTo < Commands::Base
+  def call(context)
+    y = context.pop_number
+    x = context.pop_number
+    context.path_builder.move_to(x, y)
+    context.update_current_point(x, y)
+  end
+end
+----
+
+**Execution:** `command.call(@context)` passes execution context to command.
+
+=== Error Handling
+
+**Strict Mode:**
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:196
+if @strict_mode
+  raise ConversionError, "Error executing operator '#{op}': #{e.message}"
+end
+----
+
+**Lenient Mode:**
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:201
+@context.svg_output[:paths] << "<!-- Error executing #{op}: #{e.message} -->"
+----
+
+**Trade-off:** Strict mode ensures correctness; lenient mode maximizes compatibility.
+
+== Execution Context
+
+=== Context Architecture
+
+**Location:** [`lib/postsvg/execution_context.rb`](../../lib/postsvg/execution_context.rb:9)
+
+**Components:**
+
+* **Operand Stack:** LIFO stack for values
+* **Dictionary Stack:** Nested name scopes
+* **Graphics State:** Drawing parameters and path
+* **Graphics State Stack:** Saved states for `gsave`/`grestore`
+* **SVG Output Buffer:** Accumulated SVG elements
+
+=== Operand Stack
+
+**Push Operation:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:33
+def push(value)
+  @stack << value
+end
+----
+
+**Pop Operation:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:37
+def pop
+  @stack.pop
+end
+----
+
+**Type-Safe Pop:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:41
+def pop_number(default = 0)
+  v = @stack.pop
+  return v if v.is_a?(Numeric)
+  return v.to_f if v.is_a?(String) && v.match?(/^-?\d+\.?\d*$/)
+  default
+end
+----
+
+**Stack Examples:**
+
+[source]
+----
+Operation:    push(10)  push(20)  pop()    push(30)
+Stack State:  [10]      [10,20]   [10]     [10,30]
+----
+
+=== Dictionary Stack
+
+**Structure:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:26
+@global_dict = {}
+@dict_stack = [@global_dict]
+----
+
+**Multiple Scopes:**
+
+[source]
+----
+Dictionary Stack:
+  [Global Dict, Dict 1, Dict 2, ...]
+   ^
+   Bottom (always present)
+----
+
+**Define Operation:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:93
+def define(key, value)
+  @dict_stack.last[key.to_s] = value if key
+end
+----
+
+**Lookup Operation:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:96
+def lookup(name)
+  @dict_stack.reverse_each do |dict|
+    return dict[name] if dict.key?(name)
+  end
+  nil
+end
+----
+
+**Lookup Priority:** Searches from top to bottom (innermost to outermost scope).
+
+**Example:**
+
+[source,postscript]
+----
+/x 10 def              % Global scope
+dict begin
+  /x 20 def            % Local scope
+  x                    % Looks up → 20 (local)
+end
+x                      % Looks up → 10 (global)
+----
+
+=== Graphics State Management
+
+**Save State:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:54
+def save_graphics_state
+  @saved_ctm_at_gsave = clone_matrix(@graphics_state[:ctm])
+
+  @g_stack << {
+    graphics_state: clone_graphics_state(@graphics_state),
+    current_x: @current_x,
+    current_y: @current_y,
+    saved_ctm: @saved_ctm_at_gsave,
+    path_builder: @path_builder.dup
+  }
+end
+----
+
+**Restore State:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:68
+def restore_graphics_state
+  return if @g_stack.empty?
+
+  saved = @g_stack.pop
+  @graphics_state = saved[:graphics_state]
+  @current_x = saved[:current_x]
+  @current_y = saved[:current_y]
+  @saved_ctm_at_gsave = saved[:saved_ctm]
+  @path_builder = saved[:path_builder]
+end
+----
+
+**State Components:**
+
+* Current transformation matrix (CTM)
+* Fill and stroke colors
+* Line width, cap, join, dash pattern
+* Current path
+* Current point (x, y)
+* Clipping path
+
+=== SVG Output Buffer
+
+**Structure:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:24
+@svg_output = { defs: [], paths: [], text: [] }
+----
+
+**Buffer Sections:**
+
+* `defs` - Definitions (clipPath, patterns, gradients)
+* `paths` - Path elements (`<path>`, `<rect>`, etc.)
+* `text` - Text elements (`<text>`, `<tspan>`)
+
+**Adding Elements:**
+
+[source,ruby]
+----
+@context.svg_output[:paths] << "<path d='M 10 20 L 30 40' />"
+@context.svg_output[:defs] << "<clipPath id='clip1'>...</clipPath>"
+@context.svg_output[:text] << "<text x='10' y='20'>Hello</text>"
+----
+
+== Path Building
+
+=== PathBuilder Architecture
+
+**Location:** [`lib/postsvg/path_builder.rb`](../../lib/postsvg/path_builder.rb:7)
+
+**Purpose:** Build SVG path data string incrementally.
+
+**Interface:**
+
+[source,ruby]
+----
+@path_builder.move_to(x, y)        # Add M command
+@path_builder.line_to(x, y)        # Add L command
+@path_builder.curve_to(...)        # Add C command
+@path_builder.close                # Add Z command
+@path_builder.to_path              # Generate path string
+----
+
+=== Path Commands
+
+**MoveTo:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:22
+def move_to(x, y)
+  @parts << "M #{num_fmt(x)} #{num_fmt(y)}"
+  @last_command = :move
+  @current_x = x
+  @current_y = y
+end
+----
+
+**LineTo:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:34
+def line_to(x, y)
+  @parts << "L #{num_fmt(x)} #{num_fmt(y)}"
+  @last_command = :line
+  @current_x = x
+  @current_y = y
+end
+----
+
+**CurveTo:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:46
+def curve_to(x1, y1, x2, y2, x, y)
+  @parts << "C #{num_fmt(x1)} #{num_fmt(y1)} " \
+            "#{num_fmt(x2)} #{num_fmt(y2)} " \
+            "#{num_fmt(x)} #{num_fmt(y)}"
+  @last_command = :curve
+  @current_x = x
+  @current_y = y
+end
+----
+
+**ClosePath:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:70
+def close
+  @parts << "Z"
+  @last_command = :close
+end
+----
+
+=== Path Generation
+
+**Example:**
+
+[source,postscript]
+----
+newpath
+10 20 moveto
+30 40 lineto
+50 40 lineto
+closepath
+----
+
+**PathBuilder State:**
+
+[source]
+----
+Step 1: move_to(10, 20)  → parts = ["M 10 20"]
+Step 2: line_to(30, 40)  → parts = ["M 10 20", "L 30 40"]
+Step 3: line_to(50, 40)  → parts = ["M 10 20", "L 30 40", "L 50 40"]
+Step 4: close            → parts = ["M 10 20", "L 30 40", "L 50 40", "Z"]
+----
+
+**Output:**
+
+[source]
+----
+@path_builder.to_path  → "M 10 20 L 30 40 L 50 40 Z"
+----
+
+== Coordinate Transformation
+
+=== Matrix Operations
+
+**Location:** [`lib/postsvg/matrix.rb`](../../lib/postsvg/matrix.rb:6)
+
+**Representation:** Affine transformation matrix `[a b c d e f]`
+
+**Matrix Multiplication:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:18
+def multiply(matrix)
+  result = Matrix.new
+  result.a = (@a * matrix.a) + (@c * matrix.b)
+  result.b = (@b * matrix.a) + (@d * matrix.b)
+  result.c = (@a * matrix.c) + (@c * matrix.d)
+  result.d = (@b * matrix.c) + (@d * matrix.d)
+  result.e = (@a * matrix.e) + (@c * matrix.f) + @e
+  result.f = (@b * matrix.e) + (@d * matrix.f) + @f
+  result
+end
+----
+
+=== Transformation Commands
+
+**Translate:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:29
+def translate(tx, ty)
+  multiply(Matrix.new(e: tx, f: ty))
+end
+----
+
+**Scale:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:33
+def scale(sx, sy)
+  multiply(Matrix.new(a: sx, d: sy))
+end
+----
+
+**Rotate:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:37
+def rotate(degrees)
+  radians = degrees * Math::PI / 180.0
+  m = Matrix.new
+  m.a = Math.cos(radians)
+  m.b = Math.sin(radians)
+  m.c = -Math.sin(radians)
+  m.d = Math.cos(radians)
+  multiply(m)
+end
+----
+
+=== Point Transformation
+
+**Apply Matrix to Point:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:61
+def apply_point(x, y)
+  {
+    x: (x * @a) + (y * @c) + @e,
+    y: (x * @b) + (y * @d) + @f
+  }
+end
+----
+
+**Example:**
+
+[source]
+----
+Matrix: [2, 0, 0, 2, 10, 20]  # scale(2, 2) + translate(10, 20)
+Point: (5, 5)
+
+Transformed: x' = (5 * 2) + (5 * 0) + 10 = 20
+             y' = (5 * 0) + (5 * 2) + 20 = 30
+Result: (20, 30)
+----
+
+== SVG Generation
+
+=== Document Assembly
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:219
+def generate_svg_document(svg_out, bbox)
+  width = num_fmt(bbox[:width])
+  height = num_fmt(bbox[:height])
+  llx = num_fmt(bbox[:llx])
+  lly = num_fmt(bbox[:lly])
+
+  view_box = "#{llx} #{lly} #{width} #{height}"
+
+  # Build <defs> section
+  defs = svg_out[:defs].empty? ? "" :
+    "\n<defs>\n#{svg_out[:defs].join("\n")}\n</defs>\n"
+
+  # Combine paths and text
+  elements = (svg_out[:paths] + svg_out[:text]).join("\n")
+
+  # Apply global Y-axis flip
+  transform = "translate(0 #{height}) scale(1 -1)"
+  body = "\n<g transform=\"#{transform}\">\n#{elements}\n</g>"
+
+  # Assemble document
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" \
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" " \
+    "viewBox=\"#{view_box}\" width=\"#{width}\" height=\"#{height}\">" \
+    "#{defs}#{body}\n</svg>"
+end
+----
+
+=== Number Formatting
+
+**Purpose:** Format numbers for SVG output (remove trailing zeros, handle edge cases).
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:246
+def num_fmt(n)
+  return "0" if n.nil?
+  return "0" if n.respond_to?(:nan?) && n.nan?
+  return "0" if n.respond_to?(:infinite?) && n.infinite?
+
+  n = n.to_f
+
+  # Check if effectively an integer
+  if (n - n.round).abs < 1e-10
+    n.round.to_i.to_s
+  else
+    # Format with up to 3 decimals, strip trailing zeros
+    format("%.3f", n).sub(/\.?0+$/, "")
+  end
+end
+----
+
+**Examples:**
+
+[source]
+----
+num_fmt(10.0)      → "10"
+num_fmt(10.5)      → "10.5"
+num_fmt(10.500)    → "10.5"
+num_fmt(10.123456) → "10.123"
+num_fmt(0.0001)    → "0"
+----
+
+== Execution Example
+
+=== Input PostScript
+
+[source,postscript]
+----
+newpath
+50 50 moveto
+100 50 lineto
+100 100 lineto
+50 100 lineto
+closepath
+0.5 setgray
+fill
+----
+
+=== Execution Trace
+
+[source]
+----
+Token               Action                          Stack State        Path State
+================================================================================
+newpath             Clear path                      []                 []
+50                  Push                            [50]               []
+50                  Push                            [50, 50]           []
+moveto              Pop 50, 50; M command           []                 ["M 50 50"]
+100                 Push                            [100]              ["M 50 50"]
+50                  Push                            [100, 50]          ["M 50 50"]
+lineto              Pop 100, 50; L command          []                 ["M 50 50", "L 100 50"]
+100                 Push                            [100]              [...]
+100                 Push                            [100, 100]         [...]
+lineto              Pop 100, 100; L command         []                 [..., "L 100 100"]
+50                  Push                            [50]               [...]
+100                 Push                            [50, 100]          [...]
+lineto              Pop 50, 100; L command          []                 [..., "L 50 100"]
+closepath           Z command                       []                 [..., "Z"]
+0.5                 Push                            [0.5]              [...]
+setgray             Pop 0.5; Set color              []                 [...]
+fill                Flush path to SVG               []                 []
+----
+
+=== Generated SVG
+
+[source,svg]
+----
+<path d="M 50 50 L 100 50 L 100 100 L 50 100 Z"
+      fill="#808080" stroke="none" />
+----
+
+== Performance Characteristics
+
+=== Time Complexity
+
+**Token Processing:** O(t) where t = number of tokens
+
+**Operator Execution:** O(1) per operator (hash lookup + command execution)
+
+**Data Structure Parsing:**
+
+* Procedures: O(n) where n = tokens in procedure
+* Arrays: O(m) where m = elements in array
+* Dictionaries: O(k) where k = key-value pairs
+
+**Overall:** O(t) linear in number of tokens
+
+=== Space Complexity
+
+**Operand Stack:** O(s) where s = maximum stack depth (typically small)
+
+**Dictionary Stack:** O(d) where d = number of definitions
+
+**Graphics State Stack:** O(g) where g = `gsave` nesting depth
+
+**SVG Output Buffer:** O(e) where e = number of SVG elements
+
+**Overall:** O(t + e) dominated by SVG output size
+
+=== Optimization Opportunities
+
+**Command Pooling:** Reuse command instances instead of creating new ones.
+
+**Path Merging:** Combine consecutive path operations when possible.
+
+**ClipPath Deduplication:** Already implemented - reuse identical clipPaths.
+
+== Testing the Interpreter
+
+=== Unit Tests
+
+**Stack Operations:**
+
+[source,ruby]
+----
+describe "stack operations" do
+  it "pushes and pops values" do
+    context = ExecutionContext.new
+    context.push(10)
+    context.push(20)
+    expect(context.pop).to eq(20)
+    expect(context.pop).to eq(10)
+  end
+end
+----
+
+**Operator Execution:**
+
+[source,ruby]
+----
+describe "operator execution" do
+  it "executes moveto command" do
+    tokens = [
+      Token(type: "number", value: "10"),
+      Token(type: "number", value: "20"),
+      Token(type: "operator", value: "moveto")
+    ]
+
+    result = interpreter.interpret(tokens)
+    expect(result[:svg]).to include("M 10 20")
+  end
+end
+----
+
+**Dictionary Operations:**
+
+[source,ruby]
+----
+describe "dictionary operations" do
+  it "defines and looks up values" do
+    context = ExecutionContext.new
+    context.define("myvar", 42)
+    expect(context.lookup("myvar")).to eq(42)
+  end
+end
+----
+
+=== Integration Tests
+
+**Complete Program:**
+
+[source,ruby]
+----
+describe "complete interpretation" do
+  it "interprets rectangle drawing program" do
+    ps = <<~PS
+      newpath
+      0 0 moveto
+      100 0 lineto
+      100 100 lineto
+      0 100 lineto
+      closepath
+      fill
+    PS
+
+    svg = Postsvg.convert(ps)
+    expect(svg).to include('M 0 0 L 100 0 L 100 100 L 0 100 Z')
+    expect(svg).to include('fill=')
+  end
+end
+----
+
+== Next Steps
+
+* Review link:generator-stage.adoc[Generator Stage] for SVG output details
+* Explore link:command-registry.adoc[Command Registry] for operator implementations
+* Study link:graphics-state-model.adoc[Graphics State Model] for state management
+* See link:../api-reference/interpreter.adoc[Interpreter API Reference] for usage
+
+== Bibliography
+
+* link:conversion-pipeline.adoc[Conversion Pipeline Documentation]
+* link:command-registry.adoc[Command Registry Architecture]
+* link:graphics-state-model.adoc[Graphics State Model]
+* link:../api-reference/interpreter.adoc[Interpreter API Reference]
+* link:../api-reference/execution-context.adoc[ExecutionContext API Reference]
+* PostScript Language Reference Manual, 3rd Edition (Adobe Systems)
+* Design Patterns: Elements of Reusable Object-Oriented Software

@@ -1,0 +1,903 @@
+= Conversion Pipeline
+:page-nav_order: 1
+:page-parent: Core Concepts
+
+== Purpose
+
+This document provides a detailed explanation of Postsvg's three-stage conversion pipeline that transforms PostScript into SVG. Understanding this pipeline is essential for comprehending how Postsvg processes PostScript commands and generates standards-compliant SVG output.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../concepts.adoc[Core Concepts Overview]
+* link:../architecture.adoc[Architecture Documentation]
+* link:../architecture/conversion-pipeline.adoc[Conversion Pipeline Implementation]
+* link:postscript-language.adoc[PostScript Language Fundamentals]
+
+== Concepts
+
+**Three-Stage Architecture**:: The conversion process is divided into tokenization, interpretation, and generation stages for clear separation of concerns.
+
+**Tokenization**:: The process of breaking PostScript source code into discrete tokens (numbers, operators, strings, etc.).
+
+**Interpretation**:: Executing PostScript tokens using a stack-based model to build graphics operations.
+
+**SVG Generation**:: Transforming interpreted graphics operations into standards-compliant SVG markup.
+
+**Pipeline Flow**:: Data flows unidirectionally from PostScript source through tokens to execution context to SVG output.
+
+== Pipeline Overview
+
+The conversion pipeline implements a clean three-stage architecture that separates concerns and enables independent testing and optimization of each stage.
+
+.Three-Stage Conversion Pipeline
+[source]
+----
+┌─────────────────────────────────────────────────────────────────────┐
+│                        STAGE 1: TOKENIZATION                        │
+│                                                                     │
+│  PostScript Source (.ps/.eps)                                      │
+│         │                                                           │
+│         ▼                                                           │
+│  ┌─────────────┐                                                   │
+│  │  Tokenizer  │  Lexical Analysis                                 │
+│  └──────┬──────┘                                                   │
+│         │                                                           │
+│         ▼                                                           │
+│  Token Stream: [                                                    │
+│    { type: "number", value: 100 },                                 │
+│    { type: "number", value: 200 },                                 │
+│    { type: "operator", value: "moveto" },                          │
+│    ...                                                              │
+│  ]                                                                  │
+└─────────────────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      STAGE 2: INTERPRETATION                        │
+│                                                                     │
+│  Token Stream                                                       │
+│         │                                                           │
+│         ▼                                                           │
+│  ┌─────────────────┐                                               │
+│  │  Interpreter    │  Stack-Based Execution                        │
+│  └────────┬────────┘                                               │
+│           │                                                         │
+│           ├──> ┌──────────────────┐                                │
+│           │    │ ExecutionContext │                                │
+│           │    │  - Operand Stack │                                │
+│           │    │  - Dict Stack    │                                │
+│           │    │  - Graphics State│                                │
+│           │    └──────────────────┘                                │
+│           │                                                         │
+│           ▼                                                         │
+│  Graphics Operations: [                                             │
+│    { type: :moveto, x: 100, y: 200 },                             │
+│    { type: :lineto, x: 300, y: 200 },                             │
+│    { type: :stroke, color: "#000000" },                           │
+│    ...                                                              │
+│  ]                                                                  │
+└─────────────────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      STAGE 3: SVG GENERATION                        │
+│                                                                     │
+│  Graphics Operations                                                │
+│         │                                                           │
+│         ▼                                                           │
+│  ┌──────────────┐                                                  │
+│  │ SVG Generator│  XML Document Construction                        │
+│  └──────┬───────┘                                                  │
+│         │                                                           │
+│         ▼                                                           │
+│  SVG Document:                                                      │
+│  <?xml version="1.0"?>                                             │
+│  <svg viewBox="0 0 400 400">                                       │
+│    <path d="M 100 200 L 300 200" stroke="#000" />                  │
+│  </svg>                                                             │
+└─────────────────────────────────────────────────────────────────────┘
+----
+
+== Stage 1: Tokenization
+
+=== Purpose of Tokenization
+
+Tokenization (also called lexical analysis) breaks the PostScript source into meaningful units called tokens. This stage handles:
+
+* Character-by-character parsing of PostScript syntax
+* Recognition of PostScript language elements
+* Creation of typed token objects
+* String and comment processing
+
+=== Token Types
+
+The [`Tokenizer`](../../lib/postsvg/tokenizer.rb:8) recognizes these token types:
+
+**Numeric Tokens**::
+Numbers in PostScript can be integers or floating-point values.
++
+[source,postscript]
+----
+42          % Integer → { type: "number", value: 42 }
+3.14159     % Float → { type: "number", value: 3.14159 }
+-10         % Negative → { type: "number", value: -10 }
+1.5e-3      % Scientific → { type: "number", value: 0.0015 }
+----
+
+**Operator Tokens**::
+PostScript commands that perform operations.
++
+[source,postscript]
+----
+moveto      % → { type: "operator", value: "moveto" }
+lineto      % → { type: "operator", value: "lineto" }
+stroke      % → { type: "operator", value: "stroke" }
+----
+
+**Name Tokens**::
+Identifiers starting with `/` used for dictionary keys and variable names.
++
+[source,postscript]
+----
+/MyFont     % → { type: "name", value: "MyFont" }
+/x          % → { type: "name", value: "x" }
+----
+
+**String Tokens**::
+Text enclosed in parentheses or angle brackets.
++
+[source,postscript]
+----
+(Hello)     % → { type: "string", value: "Hello" }
+<48656c6c6f>  % Hex → { type: "hex_string", value: "Hello" }
+----
+
+**Delimiter Tokens**::
+Brackets and braces for arrays and procedures.
++
+[source,postscript]
+----
+[           % → { type: "brace", value: "[" }
+]           % → { type: "brace", value: "]" }
+{           % → { type: "brace", value: "{" }
+}           % → { type: "brace", value: "}" }
+----
+
+=== Tokenization Process
+
+.Tokenization Example
+[example]
+====
+Given this PostScript code:
+
+[source,postscript]
+----
+10 20 moveto
+30 40 lineto
+stroke
+----
+
+The tokenizer produces this token stream:
+
+[source,ruby]
+----
+[
+  { type: "number", value: 10 },
+  { type: "number", value: 20 },
+  { type: "operator", value: "moveto" },
+  { type: "number", value: 30 },
+  { type: "number", value: 40 },
+  { type: "operator", value: "lineto" },
+  { type: "operator", value: "stroke" }
+]
+----
+====
+
+=== Handling Complex Structures
+
+**Procedures (Executable Arrays)**::
+Code blocks enclosed in braces are tokenized as procedure boundaries.
++
+[source,postscript]
+----
+{ 100 100 moveto 200 200 lineto stroke }
+----
++
+Becomes:
++
+[source,ruby]
+----
+[
+  { type: "brace", value: "{" },
+  { type: "number", value: 100 },
+  { type: "number", value: 100 },
+  { type: "operator", value: "moveto" },
+  { type: "number", value: 200 },
+  { type: "number", value: 200 },
+  { type: "operator", value: "lineto" },
+  { type: "operator", value: "stroke" },
+  { type: "brace", value: "}" }
+]
+----
+
+**Arrays**::
+Data arrays enclosed in square brackets.
++
+[source,postscript]
+----
+[1 2 3 4]
+----
++
+Becomes:
++
+[source,ruby]
+----
+[
+  { type: "brace", value: "[" },
+  { type: "number", value: 1 },
+  { type: "number", value: 2 },
+  { type: "number", value: 3 },
+  { type: "number", value: 4 },
+  { type: "brace", value: "]" }
+]
+----
+
+**Comments**::
+Comments starting with `%` are ignored during tokenization.
++
+[source,postscript]
+----
+100 200 moveto  % Move to starting point
+----
++
+The comment is stripped; only the command tokens remain.
+
+=== Tokenizer Implementation
+
+The tokenizer is implemented in [`lib/postsvg/tokenizer.rb`](../../lib/postsvg/tokenizer.rb:1).
+
+.Using the Tokenizer
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+ps_code = <<~PS
+  newpath
+  50 50 moveto
+  150 50 lineto
+  100 150 lineto
+  closepath
+  fill
+PS
+
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+tokens.each do |token|
+  puts "#{token[:type].ljust(10)} → #{token[:value]}"
+end
+
+# Output:
+# operator   → newpath
+# number     → 50
+# number     → 50
+# operator   → moveto
+# number     → 150
+# number     → 50
+# operator   → lineto
+# number     → 100
+# number     → 150
+# operator   → lineto
+# operator   → closepath
+# operator   → fill
+----
+====
+
+== Stage 2: Interpretation
+
+=== Purpose of Interpretation
+
+The interpretation stage executes PostScript tokens using a stack-based model. This stage:
+
+* Maintains operand and dictionary stacks
+* Executes operators through the command pattern
+* Builds graphics state progressively
+* Handles control flow (loops, conditionals)
+* Manages graphics state stack (gsave/grestore)
+
+=== Execution Model
+
+PostScript uses a **stack-based execution model** where:
+
+1. Operands are pushed onto the operand stack
+2. Operators pop operands, perform operations, and push results
+3. The graphics state accumulates drawing commands
+
+.Stack-Based Execution
+[example]
+====
+[source,postscript]
+----
+10 20 add    % Push 10, push 20, add (pop 2, push 30)
+3 mul        % Push 3, multiply (pop 30 and 3, push 90)
+----
+
+Execution trace:
+
+[source]
+----
+Step 1: Push 10
+  Stack: [10]
+
+Step 2: Push 20
+  Stack: [10, 20]
+
+Step 3: Execute 'add'
+  Pop: 20, 10
+  Calculate: 10 + 20 = 30
+  Push: 30
+  Stack: [30]
+
+Step 4: Push 3
+  Stack: [30, 3]
+
+Step 5: Execute 'mul'
+  Pop: 3, 30
+  Calculate: 30 * 3 = 90
+  Push: 90
+  Stack: [90]
+----
+====
+
+=== Execution Context
+
+The [`ExecutionContext`](../../lib/postsvg/execution_context.rb:9) maintains the runtime state:
+
+**Operand Stack**:: Values waiting for operators
+**Dictionary Stack**:: Variable definitions and scopes
+**Graphics State**:: Current drawing parameters
+**Graphics State Stack**:: Saved states from `gsave`
+**SVG Output Buffer**:: Accumulating SVG elements
+
+.Execution Context Structure
+[source]
+----
+ExecutionContext
+├── Operand Stack
+│   ├── 100
+│   ├── 200
+│   └── "Hello"
+│
+├── Dictionary Stack
+│   ├── System Dictionary (built-in operators)
+│   └── User Dictionary (user definitions)
+│
+├── Graphics State
+│   ├── Current Path: [(M 10,10), (L 90,10)]
+│   ├── Current Point: (90, 10)
+│   ├── Line Width: 1.0
+│   ├── Stroke Color: #000000
+│   ├── Fill Color: #808080
+│   └── Transformation Matrix: [1 0 0 1 0 0]
+│
+├── Graphics State Stack (for gsave/grestore)
+│   ├── [Saved State 1]
+│   └── [Saved State 2]
+│
+└── SVG Output Buffer
+    ├── <path d="M 10 10 L 90 10" stroke="#000"/>
+    └── <path d="M 50 50 L 150 150" fill="#808080"/>
+----
+
+=== Command Pattern
+
+Each PostScript operator is implemented as a command object following the Command Pattern.
+
+.Command Pattern Example
+[example]
+====
+The `moveto` operator is implemented in [`lib/postsvg/commands/path/moveto.rb`](../../lib/postsvg/commands/path/moveto.rb:1):
+
+[source,ruby]
+----
+module Postsvg
+  module Commands
+    module Path
+      class Moveto < Base
+        def execute(context)
+          y = context.pop_number  # Pop Y coordinate
+          x = context.pop_number  # Pop X coordinate
+          context.graphics_state.moveto(x, y)
+        end
+      end
+    end
+  end
+end
+----
+
+When the interpreter encounters a `moveto` token:
+
+1. Lookup command object in registry
+2. Call `command.execute(context)`
+3. Command pops operands from stack
+4. Command updates graphics state
+====
+
+=== Interpreter Implementation
+
+The interpreter is implemented in [`lib/postsvg/interpreter.rb`](../../lib/postsvg/interpreter.rb:1).
+
+.Interpreting PostScript
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# PostScript code
+ps_code = <<~PS
+  newpath
+  100 100 moveto
+  200 100 lineto
+  200 200 lineto
+  100 200 lineto
+  closepath
+  0.5 setgray
+  fill
+PS
+
+# Tokenize
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+# Interpret
+interpreter = Postsvg::Interpreter.new
+bbox = { llx: 0, lly: 0, urx: 300, ury: 300, width: 300, height: 300 }
+result = interpreter.interpret(tokens, bbox)
+
+# Result contains:
+# - :svg - Complete SVG document
+# - :paths - Individual path elements
+# - :elements - All SVG elements
+puts result[:paths].length  # 1 path (the filled square)
+----
+====
+
+=== Graphics State Management
+
+The graphics state tracks all drawing parameters:
+
+**Path State**::
+* Current path segments
+* Current point (x, y)
+* Path closed or open
+
+**Color State**::
+* Fill color (RGB, grayscale, CMYK)
+* Stroke color
+* Color space
+
+**Line Attributes**::
+* Line width
+* Line cap style (butt, round, square)
+* Line join style (miter, round, bevel)
+* Dash pattern and offset
+* Miter limit
+
+**Transformation Matrix**::
+* Current transformation matrix (CTM)
+* Enables translation, rotation, scaling
+
+.Graphics State Stack Operations
+[example]
+====
+[source,postscript]
+----
+gsave           % Save current state
+  2 setlinewidth
+  1 0 0 setrgbcolor
+  newpath
+  50 50 moveto
+  150 50 lineto
+  stroke
+grestore        % Restore previous state
+
+% Line width and color are back to original values
+----
+
+The graphics state stack allows nesting:
+
+[source]
+----
+Initial State: linewidth=1, color=black
+  │
+  ├─ gsave → Save State 1
+  │    Modified: linewidth=2, color=red
+  │    │
+  │    ├─ gsave → Save State 2
+  │    │    Modified: linewidth=5, color=blue
+  │    │    (draw with blue, width 5)
+  │    │
+  │    └─ grestore → Restore to State 1
+  │         Back to: linewidth=2, color=red
+  │         (draw with red, width 2)
+  │
+  └─ grestore → Restore to Initial State
+       Back to: linewidth=1, color=black
+----
+====
+
+== Stage 3: SVG Generation
+
+=== Purpose of SVG Generation
+
+The SVG generation stage transforms the accumulated graphics operations into standards-compliant SVG markup. This stage handles:
+
+* Coordinate system transformation (PostScript → SVG)
+* Path data formatting
+* Style attribute generation
+* SVG document structure
+* Optimization and cleanup
+
+=== SVG Document Structure
+
+The generator creates well-formed SVG documents:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="400"
+     height="400"
+     viewBox="0 0 400 400">
+  <defs>
+    <!-- Patterns, gradients, clip paths -->
+  </defs>
+  <g transform="translate(0 400) scale(1 -1)">
+    <!-- Graphics elements with Y-axis flip -->
+    <path d="M 100 100 L 300 100" stroke="#000000" stroke-width="1"/>
+  </g>
+</svg>
+----
+
+**Key Elements:**
+
+`xmlns` attribute:: SVG namespace declaration
+`viewBox`:: Coordinate system bounds from BoundingBox
+`width`/`height`:: Physical dimensions
+`<defs>`:: Reusable definitions (patterns, gradients)
+`<g>` transform:: Y-axis flip for coordinate system conversion
+
+=== Coordinate System Transformation
+
+PostScript and SVG use different coordinate systems:
+
+**PostScript**: Origin at bottom-left, Y increases upward
+**SVG**: Origin at top-left, Y increases downward
+
+.Coordinate System Difference
+[source]
+----
+PostScript (0,0 at bottom-left)    SVG (0,0 at top-left)
+
+    100 ┌────────┐ 400                  ┌────────┐ 0
+        │        │                  0   │        │
+        │    ●   │                      │    ●   │
+      0 └────────┘                      └────────┘ 400
+        0      400                      0      400
+
+    Point (200, 50) in PostScript
+    becomes (200, 350) in SVG
+----
+
+The generator applies a transformation:
+
+[source,xml]
+----
+<g transform="translate(0 400) scale(1 -1)">
+  <!-- Graphics here use PostScript coordinates -->
+</g>
+----
+
+This transform:
+1. Translates origin to bottom-left
+2. Flips Y-axis (scale Y by -1)
+
+=== Path Generation
+
+PostScript paths are converted to SVG path data:
+
+.Path Conversion
+[example]
+====
+PostScript path operations:
+
+[source,postscript]
+----
+newpath
+100 100 moveto
+200 100 lineto
+200 200 lineto
+100 200 lineto
+closepath
+----
+
+Becomes SVG path data:
+
+[source,xml]
+----
+<path d="M 100 100 L 200 100 L 200 200 L 100 200 Z"/>
+----
+
+Path command mapping:
+
+* `moveto` → `M x y`
+* `lineto` → `L x y`
+* `curveto` → `C x1 y1 x2 y2 x3 y3`
+* `closepath` → `Z`
+====
+
+=== Style Generation
+
+Graphics state attributes become SVG style attributes:
+
+**Stroke Operations**::
+[source,xml]
+----
+<path d="..."
+      stroke="#000000"
+      stroke-width="2"
+      fill="none"/>
+----
+
+**Fill Operations**::
+[source,xml]
+----
+<path d="..."
+      fill="#808080"
+      stroke="none"/>
+----
+
+**Line Attributes**::
+[source,xml]
+----
+<path d="..."
+      stroke-linecap="round"
+      stroke-linejoin="miter"
+      stroke-dasharray="5,3"/>
+----
+
+=== SVG Generator Implementation
+
+The generator is implemented in [`lib/postsvg/svg_generator.rb`](../../lib/postsvg/svg_generator.rb:1).
+
+.Using the SVG Generator
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# The generator is used internally by the interpreter
+generator = Postsvg::SvgGenerator.new
+
+# Add paths during interpretation
+generator.add_path(
+  [{ type: :moveto, x: 10, y: 10 },
+   { type: :lineto, x: 90, y: 90 }],
+  graphics_state,
+  :stroke
+)
+
+# Generate final SVG
+svg = generator.generate(
+  width: 100,
+  height: 100,
+  viewbox: "0 0 100 100"
+)
+
+puts svg
+# <?xml version="1.0" encoding="UTF-8"?>
+# <svg xmlns="http://www.w3.org/2000/svg" ...>
+#   <path d="M 10 10 L 90 90" stroke="#000" .../>
+# </svg>
+----
+====
+
+== Pipeline Data Flow
+
+=== Complete Flow Example
+
+.End-to-End Conversion
+[example]
+====
+Starting with PostScript:
+
+[source,postscript]
+----
+%!PS-Adobe-3.0
+%%BoundingBox: 0 0 200 200
+newpath
+50 50 moveto
+150 150 lineto
+1 0 0 setrgbcolor
+2 setlinewidth
+stroke
+showpage
+----
+
+**Stage 1: Tokenization**
+
+[source,ruby]
+----
+tokens = [
+  { type: "operator", value: "newpath" },
+  { type: "number", value: 50 },
+  { type: "number", value: 50 },
+  { type: "operator", value: "moveto" },
+  { type: "number", value: 150 },
+  { type: "number", value: 150 },
+  { type: "operator", value: "lineto" },
+  { type: "number", value: 1 },
+  { type: "number", value: 0 },
+  { type: "number", value: 0 },
+  { type: "operator", value: "setrgbcolor" },
+  { type: "number", value: 2 },
+  { type: "operator", value: "setlinewidth" },
+  { type: "operator", value: "stroke" },
+  { type: "operator", value: "showpage" }
+]
+----
+
+**Stage 2: Interpretation**
+
+[source,ruby]
+----
+# Execute tokens sequentially:
+# - newpath: Clear current path
+# - 50, 50, moveto: Set current point to (50, 50)
+# - 150, 150, lineto: Add line to (150, 150)
+# - 1, 0, 0, setrgbcolor: Set stroke color to red
+# - 2, setlinewidth: Set line width to 2
+# - stroke: Paint the path with current stroke settings
+
+graphics_operations = [
+  { type: :path, segments: [
+      { type: :moveto, x: 50, y: 50 },
+      { type: :lineto, x: 150, y: 150 }
+    ],
+    operation: :stroke,
+    stroke_color: "#FF0000",
+    stroke_width: 2
+  }
+]
+----
+
+**Stage 3: SVG Generation**
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="200"
+     height="200"
+     viewBox="0 0 200 200">
+  <g transform="translate(0 200) scale(1 -1)">
+    <path d="M 50 50 L 150 150"
+          stroke="#FF0000"
+          stroke-width="2"
+          fill="none"/>
+  </g>
+</svg>
+----
+====
+
+== Error Handling
+
+=== Strict vs. Lenient Modes
+
+The pipeline supports two error handling modes:
+
+**Strict Mode**::
+Fails immediately on unknown operators or execution errors.
++
+[source,ruby]
+----
+interpreter = Postsvg::Interpreter.new(strict_mode: true)
+begin
+  result = interpreter.interpret(tokens, bbox)
+rescue Postsvg::UnsupportedOperatorError => e
+  puts "Unsupported: #{e.message}"
+end
+----
+
+**Lenient Mode**::
+Continues processing, adding SVG comments for errors.
++
+[source,ruby]
+----
+interpreter = Postsvg::Interpreter.new(strict_mode: false)
+result = interpreter.interpret(tokens, bbox)
+# SVG may contain: <!-- Unhandled operator: customop -->
+----
+
+=== Error Recovery
+
+In lenient mode, the pipeline recovers from:
+
+* Unknown operators
+* Stack underflow
+* Type mismatches
+* Invalid coordinates
+
+.Error Recovery Example
+[example]
+====
+[source,postscript]
+----
+10 moveto        % ERROR: moveto needs 2 args
+100 200 moveto   % This succeeds
+----
+
+Lenient mode output:
+
+[source,xml]
+----
+<!-- Error executing moveto: insufficient operands -->
+<path d="M 100 200 ..." />
+----
+====
+
+== Performance Characteristics
+
+=== Pipeline Performance
+
+**Tokenization**: O(n) where n = character count
+
+* Single-pass character scanning
+* Minimal backtracking
+* Efficient string handling
+
+**Interpretation**: O(t × c) where:
+
+* t = token count
+* c = average command complexity
+
+**SVG Generation**: O(p) where p = path complexity
+
+* Linear path traversal
+* Minimal string operations
+
+=== Optimization Strategies
+
+**Token Stream Optimization**::
+* Tokens created once, reused
+* No token copying
+
+**Execution Optimization**::
+* Hash-based command lookup: O(1)
+* Stack operations: O(1)
+* State snapshots for gsave/grestore
+
+**SVG Optimization**::
+* Path data minimization
+* Redundant attribute removal
+* ClipPath deduplication
+
+== Next Steps
+
+* Explore link:graphics-state.adoc[Graphics State Management] for state tracking details
+* Review link:coordinate-systems.adoc[Coordinate Systems] for transformation details
+* See link:path-operations.adoc[Path Operations] for path construction
+* Check link:svg-generation.adoc[SVG Generation] for output details
+* Read link:../architecture/conversion-pipeline.adoc[Pipeline Implementation] for code details
+
+== Bibliography
+
+* link:../architecture/conversion-pipeline.adoc[Conversion Pipeline Implementation]
+* link:postscript-language.adoc[PostScript Language Fundamentals]
+* link:graphics-state.adoc[Graphics State Management]
+* link:../api-reference/interpreter.adoc[Interpreter API Reference]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual]
+* link:https://www.w3.org/TR/SVG/[SVG Specification]

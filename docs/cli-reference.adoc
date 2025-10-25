@@ -1,0 +1,317 @@
+= CLI Reference
+:page-nav_order: 5
+
+== Purpose
+
+This section provides comprehensive documentation for the Postsvg command-line interface. Learn how to use the `postsvg` command for file conversion, batch processing, and validation.
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:getting-started.adoc[Getting Started Guide]
+* link:api-reference.adoc[API Reference]
+* link:validation.adoc[Validation System]
+
+== Concepts
+
+**CLI Command**:: A command-line tool that performs PostScript to SVG conversion without writing Ruby code.
+
+**Subcommands**:: Different operations available through the CLI: convert, batch, check, version.
+
+**Options**:: Flags that modify the behavior of CLI commands (e.g., `--strict`, `--verbose`).
+
+**Exit Codes**:: Return values indicating success (0) or failure (1) for scripting and automation.
+
+== CLI Reference Topics
+
+link:cli-reference/convert-command.adoc[**convert Command**]::
+Convert a single PostScript or EPS file to SVG format.
+
+link:cli-reference/batch-command.adoc[**batch Command**]::
+Convert all PS/EPS files in a directory to SVG format.
+
+link:cli-reference/check-command.adoc[**check Command**]::
+Validate PostScript/EPS files with multiple validation levels and output formats.
+
+link:cli-reference/version-command.adoc[**version Command**]::
+Display the Postsvg version number.
+
+link:cli-reference/cli-options.adoc[**CLI Options Reference**]::
+Complete reference for all CLI options and flags.
+
+== Quick Reference
+
+=== Installation Verification
+
+[source,sh]
+----
+# Check installation
+postsvg version
+
+# Get help
+postsvg help
+postsvg help convert
+postsvg help batch
+postsvg help check
+----
+
+=== Convert Command
+
+[source,sh]
+----
+# Convert to file
+postsvg convert input.eps output.svg
+
+# Convert to stdout
+postsvg convert input.ps
+
+# Convert with strict mode
+postsvg convert --strict input.eps output.svg
+----
+
+=== Batch Command
+
+[source,sh]
+----
+# Convert all files in directory
+postsvg batch ps_files/
+
+# Convert to different directory
+postsvg batch ps_files/ svg_files/
+
+# Batch with strict mode
+postsvg batch --strict ps_files/ svg_files/
+----
+
+=== Check Command
+
+[source,sh]
+----
+# Basic validation
+postsvg check document.ps
+
+# Validation with specific level
+postsvg check --level=syntax document.ps
+postsvg check --level=semantic document.ps
+postsvg check --level=full document.ps
+
+# Multiple files
+postsvg check file1.ps file2.eps file3.ps
+
+# JSON output for CI/CD
+postsvg check --format=json --no-color document.ps
+
+# Fail fast on first error
+postsvg check --fail-fast *.ps
+
+# Validate EPS version
+postsvg check --eps-version=3.0 diagram.eps
+----
+
+== Common Usage Patterns
+
+=== Basic Workflow
+
+[source,sh]
+----
+# 1. Validate the file
+postsvg check document.ps
+
+# 2. Convert if valid
+postsvg convert document.ps document.svg
+----
+
+=== Batch Processing
+
+[source,sh]
+----
+# Process entire directory
+postsvg batch input/ output/
+
+# Check status
+echo $?  # 0 = success, 1 = failure
+----
+
+=== CI/CD Integration
+
+[source,sh]
+----
+#!/bin/bash
+# Validation script for CI/CD
+
+# Validate all PostScript files
+postsvg check --format=json --no-color \
+  --level=full --fail-fast *.ps
+
+# Exit with validation status
+exit $?
+----
+
+=== Scripted Conversion
+
+[source,sh]
+----
+#!/bin/bash
+# Convert all EPS files to SVG
+
+for file in *.eps; do
+  basename="${file%.eps}"
+  postsvg convert "$file" "${basename}.svg"
+
+  if [ $? -eq 0 ]; then
+    echo "✓ Converted $file"
+  else
+    echo "✗ Failed $file"
+  fi
+done
+----
+
+== Exit Codes
+
+All Postsvg commands use standard Unix exit codes:
+
+[cols="1,4"]
+|===
+| Code | Meaning
+
+| `0`
+| Success - operation completed without errors
+
+| `1`
+| Failure - operation failed or validation errors found
+|===
+
+.Using exit codes in scripts
+[example]
+====
+[source,sh]
+----
+postsvg check document.ps
+if [ $? -eq 0 ]; then
+  echo "File is valid"
+  postsvg convert document.ps document.svg
+else
+  echo "File has errors"
+  exit 1
+fi
+----
+====
+
+== Output Formats
+
+=== Convert Command Output
+
+**To file:**
+[source,sh]
+----
+$ postsvg convert input.eps output.svg
+Successfully converted input.eps to output.svg
+----
+
+**To stdout:**
+[source,sh]
+----
+$ postsvg convert input.ps
+<svg xmlns="http://www.w3.org/2000/svg"...>
+  ...
+</svg>
+----
+
+=== Check Command Output
+
+**Text format (default):**
+[source,sh]
+----
+$ postsvg check document.ps
+✓ document.ps - Valid PostScript file
+  File type: PostScript
+  Validation level: semantic
+  No errors found
+----
+
+**JSON format:**
+[source,sh]
+----
+$ postsvg check --format=json document.ps
+{
+  "filename": "document.ps",
+  "valid": true,
+  "file_type": "PostScript",
+  "errors": [],
+  "warnings": [],
+  "info": []
+}
+----
+
+**YAML format:**
+[source,sh]
+----
+$ postsvg check --format=yaml document.ps
+---
+filename: document.ps
+valid: true
+file_type: PostScript
+errors: []
+warnings: []
+info: []
+----
+
+=== Batch Command Output
+
+[source,sh]
+----
+$ postsvg batch ps_files/ svg_files/
+Found 3 file(s) to convert
+  ✓ ps_files/file1.ps → svg_files/file1.svg
+  ✓ ps_files/file2.eps → svg_files/file2.svg
+  ✗ ps_files/file3.ps: Conversion error: Invalid syntax
+----
+
+== Environment Variables
+
+Postsvg respects standard Ruby environment variables:
+
+**RUBY_VERSION**:: Minimum Ruby 2.7 required
+**RUBYOPT**:: Ruby interpreter options
+**GEM_HOME**:: Gem installation directory
+
+== Troubleshooting
+
+**Command not found:**
+[source,sh]
+----
+# Ensure gem bin directory is in PATH
+gem environment
+export PATH="$PATH:$(gem environment gemdir)/bin"
+----
+
+**Permission denied:**
+[source,sh]
+----
+# Make executable
+chmod +x $(which postsvg)
+----
+
+**Wrong version:**
+[source,sh]
+----
+# Update to latest
+gem update postsvg
+
+# Or specify version
+gem install postsvg -v '0.1.0'
+----
+
+== Next Steps
+
+* Review link:cli-reference/convert-command.adoc[convert command] details
+* Explore link:cli-reference/check-command.adoc[check command] for validation
+* See link:validation.adoc[Validation System] for quality checks
+* Check link:getting-started/common-workflows.adoc[Common Workflows] for examples
+
+== Bibliography
+
+* link:cli-reference/convert-command.adoc[Convert Command Documentation]
+* link:cli-reference/batch-command.adoc[Batch Command Documentation]
+* link:cli-reference/check-command.adoc[Check Command Documentation]
+* link:https://github.com/erikhuda/thor[Thor CLI Framework]

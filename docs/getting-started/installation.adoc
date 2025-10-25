@@ -1,0 +1,534 @@
+= Installation
+:page-nav_order: 1
+:page-parent: Getting Started
+
+== Purpose
+
+This guide provides detailed instructions for installing Postsvg on various platforms and environments. Whether you're installing for development, production use, or integration into an existing project, this guide covers all installation methods.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../getting-started.adoc[Getting Started Overview]
+* link:basic-usage.adoc[Basic Usage]
+* link:https://rubygems.org/gems/postsvg[RubyGems Package]
+
+== Concepts
+
+**RubyGems**:: The Ruby package manager used to distribute and install Ruby libraries.
+
+**Bundler**:: A dependency management tool for Ruby that ensures consistent gem versions across environments.
+
+**Gem**:: A packaged Ruby library or application that can be installed and managed by RubyGems.
+
+== System Requirements
+
+=== Ruby Version
+
+Postsvg requires **Ruby 2.7 or higher**.
+
+Check your Ruby version:
+
+[source,sh]
+----
+ruby -v
+# Should output: ruby 2.7.0 or higher
+----
+
+=== Operating Systems
+
+Postsvg works on all platforms that support Ruby:
+
+* **macOS**: 10.15 (Catalina) or higher
+* **Linux**: Any modern distribution (Ubuntu, Debian, CentOS, etc.)
+* **Windows**: Windows 10 or higher with Ruby installed
+
+=== Dependencies
+
+**None!** Postsvg is a pure Ruby library with no external dependencies. You don't need:
+
+* ❌ Ghostscript
+* ❌ Inkscape
+* ❌ ImageMagick
+* ❌ Native compilation tools
+
+== Installation Methods
+
+=== Method 1: Install from RubyGems (Recommended)
+
+The simplest way to install Postsvg:
+
+[source,sh]
+----
+gem install postsvg
+----
+
+This installs:
+* The `postsvg` gem and all its Ruby dependencies
+* The `postsvg` command-line tool
+* API documentation
+
+.Verify installation
+[example]
+====
+[source,sh]
+----
+postsvg version
+# Output: postsvg version 0.1.0
+
+which postsvg
+# Output: /path/to/bin/postsvg
+----
+====
+
+=== Method 2: Install with Bundler (For Projects)
+
+For Ruby projects using Bundler:
+
+**1. Add to Gemfile:**
+
+[source,ruby]
+----
+# Gemfile
+source 'https://rubygems.org'
+
+gem 'postsvg'
+----
+
+**2. Install dependencies:**
+
+[source,sh]
+----
+bundle install
+----
+
+**3. Use in your project:**
+
+[source,ruby]
+----
+require 'postsvg'
+
+svg = Postsvg.convert(ps_content)
+----
+
+**4. Run CLI via Bundler:**
+
+[source,sh]
+----
+bundle exec postsvg convert input.ps output.svg
+----
+
+.Lock to specific version
+[example]
+====
+[source,ruby]
+----
+# Gemfile - lock to exact version
+gem 'postsvg', '0.1.0'
+
+# Gemfile - lock to minor version
+gem 'postsvg', '~> 0.1'
+
+# Gemfile - latest version
+gem 'postsvg'
+----
+====
+
+=== Method 3: Install from Source (For Development)
+
+For contributing to Postsvg or using unreleased features:
+
+[source,sh]
+----
+# Clone repository
+git clone https://github.com/metanorma/postsvg.git
+cd postsvg
+
+# Install dependencies
+bundle install
+
+# Build and install gem locally
+gem build postsvg.gemspec
+gem install postsvg-*.gem
+
+# Or use directly via bundle exec
+bundle exec postsvg version
+----
+
+== Installation by Platform
+
+=== macOS
+
+**1. Install Ruby (if not present):**
+
+[source,sh]
+----
+# Using Homebrew
+brew install ruby
+
+# Or using rbenv (recommended)
+brew install rbenv
+rbenv install 3.2.0
+rbenv global 3.2.0
+----
+
+**2. Install Postsvg:**
+
+[source,sh]
+----
+gem install postsvg
+----
+
+**3. Verify installation:**
+
+[source,sh]
+----
+postsvg version
+----
+
+.Troubleshooting macOS installation
+[example]
+====
+If `postsvg` command is not found, add gem bin directory to PATH:
+
+[source,sh]
+----
+# Find gem bin directory
+gem environment | grep "EXECUTABLE DIRECTORY"
+
+# Add to ~/.zshrc or ~/.bash_profile
+export PATH="$PATH:/usr/local/lib/ruby/gems/3.2.0/bin"
+
+# Reload shell
+source ~/.zshrc
+----
+====
+
+=== Linux (Ubuntu/Debian)
+
+**1. Install Ruby:**
+
+[source,sh]
+----
+# Update package list
+sudo apt-get update
+
+# Install Ruby
+sudo apt-get install ruby-full
+
+# Verify
+ruby -v
+----
+
+**2. Install Postsvg:**
+
+[source,sh]
+----
+# Install for current user (recommended)
+gem install --user-install postsvg
+
+# Or system-wide (requires sudo)
+sudo gem install postsvg
+----
+
+**3. Add to PATH (if using --user-install):**
+
+[source,sh]
+----
+# Add to ~/.bashrc
+echo 'export PATH="$HOME/.gem/ruby/3.0.0/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+----
+
+=== Linux (CentOS/RHEL)
+
+**1. Install Ruby:**
+
+[source,sh]
+----
+# Install Ruby via yum
+sudo yum install ruby ruby-devel
+
+# Or use rbenv
+curl -fsSL https://github.com/rbenv/rbenv-installer/raw/main/bin/rbenv-installer | bash
+----
+
+**2. Install Postsvg:**
+
+[source,sh]
+----
+gem install postsvg
+----
+
+=== Windows
+
+**1. Install Ruby:**
+
+Download and install from link:https://rubyinstaller.org/[RubyInstaller for Windows]
+
+* Download Ruby+Devkit installer
+* Run installer with default options
+* Select "Add Ruby executables to PATH"
+
+**2. Install Postsvg:**
+
+[source,cmd]
+----
+gem install postsvg
+----
+
+**3. Verify:**
+
+[source,cmd]
+----
+postsvg version
+----
+
+.Windows PATH issues
+[example]
+====
+If `postsvg` is not recognized:
+
+1. Find gem bin directory:
+[source,cmd]
+----
+gem environment
+----
+
+2. Add to System PATH via Environment Variables:
+   * Settings → System → Advanced system settings
+   * Environment Variables
+   * Edit PATH variable
+   * Add gem bin directory
+====
+
+== Docker Installation
+
+For containerized deployments:
+
+**Dockerfile:**
+
+[source,dockerfile]
+----
+FROM ruby:3.2-slim
+
+# Install Postsvg
+RUN gem install postsvg
+
+# Set working directory
+WORKDIR /app
+
+# Default command
+CMD ["postsvg", "version"]
+----
+
+**Build and run:**
+
+[source,sh]
+----
+# Build image
+docker build -t postsvg .
+
+# Run conversion
+docker run -v $(pwd):/app postsvg convert input.ps output.svg
+
+# Interactive shell
+docker run -it -v $(pwd):/app postsvg bash
+----
+
+== CI/CD Installation
+
+=== GitHub Actions
+
+[source,yaml]
+----
+name: Convert PostScript
+
+on: [push]
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install Postsvg
+        run: gem install postsvg
+
+      - name: Convert files
+        run: postsvg batch ps_files/ svg_files/
+----
+
+=== GitLab CI
+
+[source,yaml]
+----
+convert:
+  image: ruby:3.2
+  script:
+    - gem install postsvg
+    - postsvg batch ps_files/ svg_files/
+  artifacts:
+    paths:
+      - svg_files/
+----
+
+== Verifying Installation
+
+After installation, verify Postsvg is working correctly:
+
+[source,sh]
+----
+# Check version
+postsvg version
+
+# Get help
+postsvg help
+
+# Test conversion (create test file first)
+echo '%!PS-Adobe-3.0
+%%BoundingBox: 0 0 100 100
+newpath
+50 50 moveto
+90 50 lineto
+stroke' > test.ps
+
+postsvg convert test.ps test.svg
+cat test.svg
+----
+
+Expected output should include valid SVG markup.
+
+== Updating Postsvg
+
+=== Update via RubyGems
+
+[source,sh]
+----
+# Update to latest version
+gem update postsvg
+
+# Check installed version
+gem list postsvg
+
+# Install specific version
+gem install postsvg -v '0.2.0'
+----
+
+=== Update via Bundler
+
+[source,sh]
+----
+# Update Gemfile.lock
+bundle update postsvg
+
+# Or update all gems
+bundle update
+----
+
+== Uninstalling
+
+=== Remove gem
+
+[source,sh]
+----
+# Uninstall Postsvg
+gem uninstall postsvg
+
+# Remove all versions
+gem uninstall postsvg --all
+----
+
+=== Clean Bundler
+
+[source,sh]
+----
+# Remove from Gemfile
+# Then update bundle
+bundle install
+----
+
+== Troubleshooting
+
+=== Permission Denied
+
+**Problem:**
+[source]
+----
+ERROR: While executing gem ... (Errno::EACCES)
+Permission denied
+----
+
+**Solution:**
+
+[source,sh]
+----
+# Use user install
+gem install --user-install postsvg
+
+# Or use sudo (not recommended)
+sudo gem install postsvg
+----
+
+=== Command Not Found
+
+**Problem:**
+[source]
+----
+bash: postsvg: command not found
+----
+
+**Solution:**
+
+[source,sh]
+----
+# Find gem bin directory
+gem environment gemdir
+
+# Add to PATH
+export PATH="$PATH:$(gem environment gemdir)/bin"
+----
+
+=== Wrong Ruby Version
+
+**Problem:**
+[source]
+----
+Postsvg requires Ruby >= 2.7
+----
+
+**Solution:**
+
+[source,sh]
+----
+# Check current version
+ruby -v
+
+# Install newer Ruby via rbenv
+rbenv install 3.2.0
+rbenv global 3.2.0
+
+# Verify
+ruby -v
+----
+
+== Next Steps
+
+After successful installation:
+
+* Try link:basic-usage.adoc[Basic Usage] examples
+* Follow link:first-conversion.adoc[First Conversion] tutorial
+* Explore link:../cli-reference.adoc[CLI Reference]
+* Review link:../api-reference.adoc[API Reference] for programmatic use
+
+== Bibliography
+
+* link:https://rubygems.org/gems/postsvg[Postsvg on RubyGems]
+* link:https://bundler.io/[Bundler Documentation]
+* link:https://www.ruby-lang.org/[Ruby Programming Language]
+* link:basic-usage.adoc[Basic Usage Guide]

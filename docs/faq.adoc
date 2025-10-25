@@ -1,0 +1,493 @@
+= Frequently Asked Questions
+:page-nav_order: 11
+
+== Purpose
+
+This page answers common questions about Postsvg, its capabilities, limitations, and usage. If you don't find your answer here, check link:troubleshooting.adoc[Troubleshooting] or link:https://github.com/metanorma/postsvg/issues[ask on GitHub].
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:troubleshooting.adoc[Troubleshooting Guide]
+* link:getting-started.adoc[Getting Started]
+* link:https://github.com/metanorma/postsvg/issues[GitHub Issues]
+
+== General Questions
+
+=== What is Postsvg?
+
+Postsvg is a pure Ruby library for converting PostScript (PS) and Encapsulated PostScript (EPS) files to Scalable Vector Graphics (SVG) format. Unlike traditional converters that rely on Ghostscript or Inkscape, Postsvg is implemented entirely in Ruby with no external dependencies.
+
+=== Why use Postsvg instead of Ghostscript?
+
+**Advantages of Postsvg:**
+* Pure Ruby - no external dependencies
+* Easy integration in Ruby applications
+* Lightweight and portable
+* Works in restricted environments
+* Better for programmatic use
+
+**When to use Ghostscript:**
+* Complex PostScript Level 2/3 features
+* Text rendering required
+* Production-critical conversions
+* Maximum compatibility needed
+
+=== What PostScript features are supported?
+
+**Fully supported:**
+* Path construction (moveto, lineto, curveto, etc.)
+* Basic painting (stroke, fill)
+* RGB and grayscale colors
+* Graphics state management (gsave, grestore)
+* Coordinate transformations
+* Stack operations
+* Basic control flow
+
+**Partially supported:**
+* CMYK colors (converted to RGB)
+* Clipping paths (basic support)
+
+**Not yet supported:**
+* Text rendering (show, findfont, setfont)
+* Gradients and patterns
+* Raster images
+* Advanced Level 2/3 operators
+
+See link:index.adoc#current-limitations[Current Limitations] for details.
+
+=== Is Postsvg production-ready?
+
+Postsvg is suitable for:
+* ✅ Simple vector graphics conversion
+* ✅ Automated workflows and scripting
+* ✅ Development and testing
+* ✅ Files without text or complex features
+
+Use caution for:
+* ⚠️ Complex PostScript documents
+* ⚠️ Files with text content
+* ⚠️ Mission-critical production systems
+
+Always validate output for your specific use case.
+
+== Installation and Setup
+
+=== What are the system requirements?
+
+* **Ruby:** 2.7 or higher
+* **Operating System:** Any (macOS, Linux, Windows)
+* **Dependencies:** None (pure Ruby)
+
+=== How do I install Postsvg?
+
+[source,sh]
+----
+# Via RubyGems
+gem install postsvg
+
+# Via Bundler
+# Add to Gemfile:
+gem 'postsvg'
+
+# Then:
+bundle install
+----
+
+See link:getting-started/installation.adoc[Installation Guide] for details.
+
+=== Can I use Postsvg without Ruby?
+
+No, Postsvg is a Ruby library and requires Ruby to run. However, you can:
+
+* Use the CLI without writing Ruby code
+* Call Postsvg from other languages via shell commands
+* Package with Ruby in containers/executables
+
+== Usage Questions
+
+=== How do I convert a PostScript file to SVG?
+
+**Command line:**
+[source,sh]
+----
+postsvg convert input.ps output.svg
+----
+
+**Ruby API:**
+[source,ruby]
+----
+require 'postsvg'
+Postsvg.convert_file('input.ps', 'output.svg')
+----
+
+See link:getting-started/basic-usage.adoc[Basic Usage] for more examples.
+
+=== Can I convert EPS files?
+
+Yes! Postsvg supports both PostScript (.ps) and Encapsulated PostScript (.eps) files.
+
+[source,sh]
+----
+postsvg convert diagram.eps diagram.svg
+----
+
+=== How do I batch convert multiple files?
+
+**Command line:**
+[source,sh]
+----
+# Convert all files in directory
+postsvg batch input_dir/ output_dir/
+----
+
+**Ruby API:**
+[source,ruby]
+----
+Dir.glob('*.ps').each do |file|
+  output = file.sub('.ps', '.svg')
+  Postsvg.convert_file(file, output)
+end
+----
+
+See link:cli-reference/batch-command.adoc[Batch Command] for details.
+
+=== What if my file has no BoundingBox?
+
+Postsvg falls back to default dimensions (1920x1080). For better results:
+
+1. **Add BoundingBox comment:**
+   [source,postscript]
+   ----
+   %%BoundingBox: 0 0 612 792
+   ----
+
+2. **Calculate with Ghostscript:**
+   [source,sh]
+   ----
+   gs -dNOPAUSE -dBATCH -sDEVICE=bbox file.ps 2>&1 | grep BoundingBox
+   ----
+
+=== How do I validate PostScript files?
+
+Use the check command:
+
+[source,sh]
+----
+# Basic validation
+postsvg check document.ps
+
+# Full validation with conversion test
+postsvg check --level=full document.ps
+
+# JSON output for CI/CD
+postsvg check --format=json --no-color document.ps
+----
+
+See link:validation.adoc[Validation System] for details.
+
+== Conversion Issues
+
+=== Why is my output SVG empty?
+
+**Common causes:**
+
+1. **Unsupported operators:**
+   Check logs for "Unknown operator" errors
+
+2. **Missing BoundingBox:**
+   Add `%%BoundingBox:` comment
+
+3. **Path not closed:**
+   Ensure paths end with `stroke` or `fill`
+
+4. **Coordinate system issues:**
+   Verify coordinates are within BoundingBox
+
+See link:troubleshooting.adoc#empty-or-corrupted-output[Troubleshooting] for solutions.
+
+=== Why doesn't text appear in the output?
+
+Text rendering is not yet supported. To work around:
+
+1. **Convert text to outlines** before processing
+2. **Use Ghostscript** for text-heavy files
+3. **Wait for future support** (link:contributing.adoc[or contribute!])
+
+See link:index.adoc#current-limitations[Current Limitations].
+
+=== Why are colors wrong?
+
+**Possible causes:**
+
+1. **CMYK colors:** Converted to RGB (may differ)
+2. **Custom color spaces:** Not supported
+3. **ICC profiles:** Not supported
+
+**Solutions:**
+* Use RGB colors in PostScript
+* Accept RGB approximations
+* Preprocess with color conversion tools
+
+=== What does "Unknown operator" mean?
+
+The PostScript file uses an operator not yet implemented in Postsvg.
+
+**Solutions:**
+
+1. **Disable strict mode** (if operator is non-critical):
+   [source,ruby]
+   ----
+   Postsvg::Converter.new(content, strict_mode: false)
+   ----
+
+2. **Check operator support:**
+   link:postscript/operators/index.adoc[Operator Reference]
+
+3. **Request feature:**
+   link:https://github.com/metanorma/postsvg/issues/new[Create issue]
+
+== Performance Questions
+
+=== How fast is Postsvg?
+
+Performance depends on:
+* File size and complexity
+* Number of paths and operations
+* System resources
+
+**Typical performance:**
+* Simple files: < 1 second
+* Complex files: 1-10 seconds
+* Very large files: May take longer
+
+=== Can I speed up conversion?
+
+**Tips:**
+
+1. **Batch processing:**
+   [source,ruby]
+   ----
+   # Process in parallel (with caution)
+   files.each_slice(10) do |batch|
+     threads = batch.map { |f| Thread.new { convert(f) } }
+     threads.each(&:join)
+   end
+   ----
+
+2. **Reduce file complexity:**
+   Simplify PostScript before conversion
+
+3. **Use batch command:**
+   [source,sh]
+   ----
+   postsvg batch input/ output/  # Optimized for multiple files
+   ----
+
+=== Why is memory usage high?
+
+Postsvg loads entire files into memory. For large files:
+
+1. **Process sequentially:**
+   [source,ruby]
+   ----
+   files.each do |f|
+     convert(f)
+     GC.start  # Force garbage collection
+   end
+   ----
+
+2. **Increase Ruby memory:**
+   [source,sh]
+   ----
+   RUBY_GC_HEAP_GROWTH_FACTOR=1.1 postsvg batch files/
+   ----
+
+== Development Questions
+
+=== How can I contribute?
+
+We welcome contributions! See link:contributing.adoc[Contributing Guide] for:
+
+* Bug reports and feature requests
+* Code contributions
+* Documentation improvements
+* Test case additions
+
+=== How do I add support for a new operator?
+
+See link:development/adding-operators.adoc[Adding Operators] guide. Basic steps:
+
+1. Create operator class
+2. Register in command registry
+3. Write tests
+4. Update documentation
+
+=== Where can I get help with development?
+
+* Read link:development.adoc[Development Guide]
+* Check link:architecture.adoc[Architecture Documentation]
+* Ask in GitHub Discussions
+* Comment on relevant issues
+
+=== What's the roadmap for Postsvg?
+
+Current priorities:
+
+1. **Text rendering support** (high priority)
+2. **Gradient and pattern support**
+3. **Improved clipping paths**
+4. **Additional PostScript operators**
+5. **Performance optimizations**
+
+Follow link:https://github.com/metanorma/postsvg/issues[GitHub Issues] for updates.
+
+== Integration Questions
+
+=== Can I use Postsvg in Rails?
+
+Yes! Example integration:
+
+[source,ruby]
+----
+# app/services/postscript_converter.rb
+class PostscriptConverter
+  def self.convert(uploaded_file)
+    ps_content = uploaded_file.read
+    Postsvg.convert(ps_content)
+  end
+end
+
+# In controller
+svg_content = PostscriptConverter.convert(params[:file])
+send_data svg_content, type: 'image/svg+xml'
+----
+
+=== Can I use Postsvg in CI/CD?
+
+Yes! Use the check command for validation:
+
+[source,yaml]
+----
+# .github/workflows/validate.yml
+- name: Validate PostScript files
+  run: |
+    gem install postsvg
+    postsvg check --format=json --fail-fast *.ps
+----
+
+See link:validation.adoc[Validation System] for CI/CD integration.
+
+=== Does Postsvg work on Windows?
+
+Yes! Postsvg is pure Ruby and works on Windows. Install via:
+
+[source,cmd]
+----
+gem install postsvg
+----
+
+Some shell commands in documentation may need Windows equivalents.
+
+=== Can I use Postsvg from Python/Node.js?
+
+Indirectly, via shell commands:
+
+**Python:**
+[source,python]
+----
+import subprocess
+
+subprocess.run(['postsvg', 'convert', 'input.ps', 'output.svg'])
+----
+
+**Node.js:**
+[source,javascript]
+----
+const { execSync } = require('child_process');
+
+execSync('postsvg convert input.ps output.svg');
+----
+
+== Comparison Questions
+
+=== Postsvg vs Ghostscript?
+
+[cols="1,1,1"]
+|===
+| Feature | Postsvg | Ghostscript
+
+| Dependencies
+| None (pure Ruby)
+| External binary required
+
+| Installation
+| `gem install`
+| System package
+
+| Text rendering
+| Not yet supported
+| Full support
+
+| Ruby integration
+| Native
+| Via shell
+
+| Portability
+| Excellent
+| Platform-dependent
+
+| Feature coverage
+| Basic
+| Complete
+|===
+
+=== Postsvg vs Inkscape?
+
+[cols="1,1,1"]
+|===
+| Feature | Postsvg | Inkscape
+
+| Programmatic use
+| Excellent
+| Limited
+
+| GUI
+| None
+| Full GUI
+
+| Batch processing
+| Built-in
+| Via scripting
+
+| File support
+| PS/EPS only
+| Many formats
+
+| Dependencies
+| None
+| Multiple libraries
+|===
+
+=== Postsvg vs ps2svg?
+
+Postsvg uses test fixtures from ps2svg for compatibility testing. Key differences:
+
+* **Postsvg:** Pure Ruby, easier to integrate
+* **ps2svg:** C++ based, faster performance
+
+See link:advanced-topics/compatibility.adoc[Compatibility Guide].
+
+== Still Have Questions?
+
+* Check link:troubleshooting.adoc[Troubleshooting Guide]
+* Review link:getting-started.adoc[Getting Started Guide]
+* Browse link:https://github.com/metanorma/postsvg/issues[GitHub Issues]
+* link:https://github.com/metanorma/postsvg/issues/new[Ask a question]
+
+== Bibliography
+
+* link:getting-started.adoc[Getting Started Guide]
+* link:troubleshooting.adoc[Troubleshooting]
+* link:validation.adoc[Validation System]
+* link:contributing.adoc[Contributing Guide]

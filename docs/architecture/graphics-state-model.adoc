@@ -1,0 +1,1089 @@
+= Graphics State Model
+:page-nav_order: 6
+
+== Purpose
+
+This document describes Postsvg's graphics state management architecture, which maintains drawing parameters, transformation matrices, and path construction throughout PostScript execution. Understanding the graphics state model helps developers comprehend state persistence, transformation handling, and rendering parameter management.
+
+== References
+
+* link:../architecture.adoc[Architecture Overview]
+* link:interpreter-stage.adoc[Interpreter Stage]
+* link:command-registry.adoc[Command Registry]
+* link:../api-reference/graphics-state.adoc[GraphicsState API Reference]
+* link:../api-reference/execution-context.adoc[ExecutionContext API Reference]
+
+== Concepts
+
+**Graphics State**:: Collection of parameters that control rendering operations.
+
+**State Stack**:: Stack of saved graphics states for `gsave`/`grestore` operations.
+
+**Current Transformation Matrix (CTM)**:: Affine transformation mapping user space to device space.
+
+**Path Construction**:: Building vector paths through sequential drawing commands.
+
+**Immutability**:: Graphics state objects are cloned rather than modified in place.
+
+== Graphics State Components
+
+=== State Parameters
+
+**Drawing Parameters:**
+
+* Fill color (RGB hex)
+* Stroke color (RGB hex)
+* Line width
+* Line cap style
+* Line join style
+* Dash pattern
+
+**Transformation:**
+
+* Current Transformation Matrix (CTM)
+* Matrix decomposition components
+
+**Path:**
+
+* Current path segments
+* Current point (x, y)
+* Path builder instance
+
+**Clipping:**
+
+* Clip path stack
+* ClipPath definitions
+
+**Text:**
+
+* Font family
+* Font size
+* Last text position
+
+**Advanced Features:**
+
+* ICC color profile
+* Blend mode
+* Soft mask
+* Opacity alpha
+* Shape alpha
+
+=== State Structure
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:399
+def default_graphics_state
+  {
+    ctm: Matrix.new,                    # Transformation matrix
+    fill: "black",                      # Fill color
+    stroke: "black",                    # Stroke color
+    stroke_width: 1,                    # Line width
+    line_cap: "butt",                   # Line cap: butt|round|square
+    line_join: "miter",                 # Line join: miter|round|bevel
+    font: "Arial, sans-serif",          # Font family
+    font_size: 12,                      # Font size in points
+    clip_stack: [],                     # Clipping paths
+    dash: nil,                          # Dash pattern
+    last_text_pos: nil,                 # Last text position
+    pattern: nil,                       # Pattern fill
+    pattern_dict: nil,                  # Pattern dictionary
+    icc_profile: nil,                   # ICC color profile
+    blend_mode: :normal,                # Blend mode
+    soft_mask: nil,                     # Soft mask
+    opacity_alpha: 1.0,                 # Opacity
+    shape_alpha: 1.0                    # Shape alpha
+  }
+end
+----
+
+== State Management Architecture
+
+=== ExecutionContext State Management
+
+**Location:** [`lib/postsvg/execution_context.rb`](../../lib/postsvg/execution_context.rb:9)
+
+**Responsibilities:**
+
+* Maintain current graphics state
+* Manage graphics state stack
+* Clone states for save/restore
+* Track transformation matrix
+* Build and manage paths
+
+=== Initialization
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:14
+def initialize
+  @stack = []                          # Operand stack
+  @graphics_state = default_graphics_state
+  @g_stack = []                        # Graphics state stack
+  @path_builder = PathBuilder.new
+  @current_x = 0
+  @current_y = 0
+  @svg_output = { defs: [], paths: [], text: [] }
+  # ... additional initialization
+end
+----
+
+**Initial State:**
+
+* Identity transformation matrix
+* Black fill and stroke colors
+* Default line width (1 unit)
+* Empty path
+* No clipping
+
+== State Stack Operations
+
+=== Save Graphics State
+
+**PostScript Operator:** `gsave`
+
+**Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:54
+def save_graphics_state
+  # Save current CTM for transform detection
+  @saved_ctm_at_gsave = clone_matrix(@graphics_state[:ctm])
+
+  # Clone entire graphics state
+  @g_stack << {
+    graphics_state: clone_graphics_state(@graphics_state),
+    current_x: @current_x,
+    current_y: @current_y,
+    saved_ctm: @saved_ctm_at_gsave,
+    path_builder: @path_builder.dup
+  }
+end
+----
+
+**Cloning Process:**
+
+1. **Deep Copy Matrix:** Create new Matrix instance with same values
+2. **Clone State Hash:** Create new hash with cloned values
+3. **Duplicate Path Builder:** Create independent path builder
+4. **Save Current Point:** Preserve x, y coordinates
+5. **Push to Stack:** Add to graphics state stack
+
+=== Restore Graphics State
+
+**PostScript Operator:** `grestore`
+
+**Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:68
+def restore_graphics_state
+  return if @g_stack.empty?
+
+  saved = @g_stack.pop
+  @graphics_state = saved[:graphics_state]
+  @current_x = saved[:current_x]
+  @current_y = saved[:current_y]
+  @saved_ctm_at_gsave = saved[:saved_ctm]
+  @path_builder = saved[:path_builder]
+end
+----
+
+**Restoration Process:**
+
+1. **Pop from Stack:** Remove most recent saved state
+2. **Restore State:** Replace current with saved state
+3. **Restore Position:** Reset current point
+4. **Restore Path:** Restore path builder
+5. **Restore CTM Reference:** Update saved CTM reference
+
+=== State Stack Depth
+
+**Nesting Support:** Unlimited depth (subject to memory)
+
+**Example:**
+
+[source,postscript]
+----
+% Level 0 (initial state)
+gsave
+  % Level 1
+  1 0 0 setrgbcolor
+  gsave
+    % Level 2
+    2 setlinewidth
+    gsave
+      % Level 3
+      45 rotate
+    grestore  % Back to level 2
+  grestore    % Back to level 1
+grestore      % Back to level 0
+----
+
+**Stack State:**
+
+[source]
+----
+After gsave (level 1):  [@g_stack.length = 1]
+After gsave (level 2):  [@g_stack.length = 2]
+After gsave (level 3):  [@g_stack.length = 3]
+After grestore:         [@g_stack.length = 2]
+After grestore:         [@g_stack.length = 1]
+After grestore:         [@g_stack.length = 0]
+----
+
+== Current Transformation Matrix (CTM)
+
+=== Matrix Representation
+
+**Structure:** 6-element affine transformation matrix
+
+[source]
+----
+| a  c  e |
+| b  d  f |
+| 0  0  1 |
+
+Where:
+  a, d = Scale factors (sx, sy)
+  b, c = Rotation/skew components
+  e, f = Translation (tx, ty)
+----
+
+**Matrix Class:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:6
+class Matrix
+  attr_accessor :a, :b, :c, :d, :e, :f
+
+  def initialize(a: 1, b: 0, c: 0, d: 1, e: 0, f: 0)
+    @a = a  # Scale X / Cos(rotation)
+    @b = b  # Sin(rotation)
+    @c = c  # -Sin(rotation)
+    @d = d  # Scale Y / Cos(rotation)
+    @e = e  # Translate X
+    @f = f  # Translate Y
+  end
+end
+----
+
+**Initial CTM:** Identity matrix `[1, 0, 0, 1, 0, 0]`
+
+=== Matrix Operations
+
+**Multiplication:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:18
+def multiply(matrix)
+  result = Matrix.new
+  result.a = (@a * matrix.a) + (@c * matrix.b)
+  result.b = (@b * matrix.a) + (@d * matrix.b)
+  result.c = (@a * matrix.c) + (@c * matrix.d)
+  result.d = (@b * matrix.c) + (@d * matrix.d)
+  result.e = (@a * matrix.e) + (@c * matrix.f) + @e
+  result.f = (@b * matrix.e) + (@d * matrix.f) + @f
+  result
+end
+----
+
+**Translation:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:29
+def translate(tx, ty)
+  multiply(Matrix.new(e: tx, f: ty))
+end
+
+# Matrix multiplication:
+# [1 0 tx]   [a c e]   [a c (e+tx)]
+# [0 1 ty] × [b d f] = [b d (f+ty)]
+# [0 0  1]   [0 0 1]   [0 0   1  ]
+----
+
+**Scaling:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:33
+def scale(sx, sy)
+  multiply(Matrix.new(a: sx, d: sy))
+end
+
+# Matrix multiplication:
+# [sx  0 0]   [a c e]   [sx*a sx*c e]
+# [ 0 sy 0] × [b d f] = [sy*b sy*d f]
+# [ 0  0 1]   [0 0 1]   [  0    0  1]
+----
+
+**Rotation:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:37
+def rotate(degrees)
+  radians = degrees * Math::PI / 180.0
+  m = Matrix.new
+  m.a = Math.cos(radians)
+  m.b = Math.sin(radians)
+  m.c = -Math.sin(radians)
+  m.d = Math.cos(radians)
+  multiply(m)
+end
+
+# Matrix multiplication:
+# [cos -sin 0]   [a c e]
+# [sin  cos 0] × [b d f]
+# [ 0    0  1]   [0 0 1]
+----
+
+=== Point Transformation
+
+**Apply Matrix to Point:**
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:61
+def apply_point(x, y)
+  {
+    x: (x * @a) + (y * @c) + @e,
+    y: (x * @b) + (y * @d) + @f
+  }
+end
+----
+
+**Mathematical Formula:**
+
+[source]
+----
+x' = x * a + y * c + e
+y' = x * b + y * d + f
+----
+
+**Example:**
+
+[source]
+----
+Matrix: [2, 0, 0, 2, 10, 20]  # scale(2,2) + translate(10,20)
+Point: (5, 5)
+
+x' = 5*2 + 5*0 + 10 = 20
+y' = 5*0 + 5*2 + 20 = 30
+
+Result: (20, 30)
+----
+
+=== Matrix Decomposition
+
+**Purpose:** Convert matrix to SVG transform components.
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:68
+def decompose
+  det = (@a * @d) - (@b * @c)
+  return identity_decomposition if det.abs < 1e-10
+
+  # Calculate scale from column vector length
+  scale_x = Math.hypot(@a, @b)
+  return zero_decomposition if scale_x.abs < 1e-10
+
+  # Calculate scale_y from determinant
+  scale_y = det / scale_x
+
+  # Calculate rotation from normalized first column
+  rotation = Math.atan2(@b, @a) * (180.0 / Math::PI)
+
+  {
+    translate: { x: @e, y: @f },
+    scale: { x: scale_x, y: scale_y },
+    rotate: rotation,
+    skew: calculate_skew(scale_x, scale_y)
+  }
+end
+----
+
+**Decomposition Components:**
+
+* **Translation:** `(e, f)` from matrix
+* **Rotation:** `atan2(b, a)` in degrees
+* **Scale:** `(√(a²+b²), det/sx)` for x and y
+* **Skew:** Calculated from dot products (usually 0)
+
+=== Matrix Inversion
+
+**Purpose:** Convert points from device space to user space.
+
+[source,ruby]
+----
+# lib/postsvg/matrix.rb:123
+def invert
+  det = (@a * @d) - (@b * @c)
+  return Matrix.new if det.abs < 1e-10  # Singular matrix
+
+  det = det.to_f
+
+  inv = Matrix.new
+  inv.a = @d / det
+  inv.b = -@b / det
+  inv.c = -@c / det
+  inv.d = @a / det
+  inv.e = ((@c * @f) - (@d * @e)) / det
+  inv.f = ((@b * @e) - (@a * @f)) / det
+  inv
+end
+----
+
+**Use Case:** Transform SVG path coordinates back to PostScript space.
+
+== Path Management
+
+=== PathBuilder Architecture
+
+**Location:** [`lib/postsvg/path_builder.rb`](../../lib/postsvg/path_builder.rb:7)
+
+**Purpose:** Build SVG path data string incrementally.
+
+**State:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:10
+def initialize
+  @parts = []           # Path command strings
+  @last_command = nil   # Track last command type
+  @current_x = 0.0      # Current x position
+  @current_y = 0.0      # Current y position
+end
+----
+
+=== Path Commands
+
+**MoveTo:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:22
+def move_to(x, y)
+  @parts << "M #{num_fmt(x)} #{num_fmt(y)}"
+  @last_command = :move
+  @current_x = x
+  @current_y = y
+end
+----
+
+**LineTo:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:34
+def line_to(x, y)
+  @parts << "L #{num_fmt(x)} #{num_fmt(y)}"
+  @last_command = :line
+  @current_x = x
+  @current_y = y
+end
+----
+
+**CurveTo (Cubic Bezier):**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:46
+def curve_to(x1, y1, x2, y2, x, y)
+  @parts << "C #{num_fmt(x1)} #{num_fmt(y1)} " \
+            "#{num_fmt(x2)} #{num_fmt(y2)} " \
+            "#{num_fmt(x)} #{num_fmt(y)}"
+  @last_command = :curve
+  @current_x = x
+  @current_y = y
+end
+----
+
+**ClosePath:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:70
+def close
+  @parts << "Z"
+  @last_command = :close
+end
+----
+
+=== Path State Tracking
+
+**Current Point:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:108
+def current_point
+  [@current_x, @current_y]
+end
+----
+
+**Has Content:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:103
+def has_content?
+  @parts.length > 1  # More than just a moveto
+end
+----
+
+**Path Generation:**
+
+[source,ruby]
+----
+# lib/postsvg/path_builder.rb:75
+def to_path
+  @parts.join(" ")
+end
+
+# Example:
+# @parts = ["M 10 20", "L 30 40", "L 50 60", "Z"]
+# to_path → "M 10 20 L 30 40 L 50 60 Z"
+----
+
+=== Path Lifecycle
+
+.Path Construction Lifecycle
+[source]
+----
+newpath          → Clear path builder
+moveto           → Start new subpath
+lineto/curveto   → Add segments
+closepath        → Close subpath (optional)
+fill/stroke/clip → Flush path to SVG
+                 → Create new path builder
+----
+
+**Example:**
+
+[source,postscript]
+----
+newpath         % path_builder = PathBuilder.new
+10 20 moveto    % path_builder.move_to(10, 20)
+30 40 lineto    % path_builder.line_to(30, 40)
+50 60 lineto    % path_builder.line_to(50, 60)
+closepath       % path_builder.close
+fill            % flush_path({ fill: true, stroke: false })
+                % path_builder = PathBuilder.new
+----
+
+== Color Management
+
+=== Color Representation
+
+**Internal Format:** RGB hex strings
+
+**Conversion from PostScript:**
+
+[source,ruby]
+----
+# RGB color (0-1 range → hex)
+def rgb_to_hex(r, g, b)
+  format("#%02x%02x%02x",
+         (r * 255).to_i,
+         (g * 255).to_i,
+         (b * 255).to_i)
+end
+
+# Examples:
+rgb_to_hex(1, 0, 0)     → "#ff0000" (red)
+rgb_to_hex(0, 1, 0)     → "#00ff00" (green)
+rgb_to_hex(0, 0, 1)     → "#0000ff" (blue)
+rgb_to_hex(0.5, 0.5, 0.5) → "#808080" (gray)
+----
+
+=== Color State
+
+**Fill and Stroke:**
+
+[source,ruby]
+----
+@graphics_state[:fill] = "#ff0000"    # Fill color
+@graphics_state[:stroke] = "#0000ff"  # Stroke color
+----
+
+**Grayscale:**
+
+[source,postscript]
+----
+0.5 setgray  % Sets both fill and stroke to #808080
+----
+
+**RGB:**
+
+[source,postscript]
+----
+1 0 0 setrgbcolor  % Sets both fill and stroke to #ff0000 (red)
+----
+
+=== Color Sanitization
+
+**Purpose:** Handle non-standard color values.
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:374
+def sanitize_color_value(color)
+  return color if color.is_a?(String)
+  "none"  # For patterns, procedures, etc.
+end
+----
+
+**Use Cases:**
+
+* Pattern fills (procedure objects)
+* Invalid color specifications
+* Uninitialized color values
+
+== Line Attributes
+
+=== Line Width
+
+**PostScript Operator:** `setlinewidth`
+
+**State Storage:**
+
+[source,ruby]
+----
+@graphics_state[:stroke_width] = width
+----
+
+**SVG Output:**
+
+[source,xml]
+----
+<path stroke-width="2.5" ... />
+----
+
+**Default:** 1 unit
+
+=== Line Cap
+
+**PostScript Operator:** `setlinecap`
+
+**Values:**
+
+[cols="1,1,2"]
+|===
+|PostScript Value |SVG Value |Description
+
+|`0`
+|`butt`
+|Square ends at endpoints
+
+|`1`
+|`round`
+|Rounded ends
+
+|`2`
+|`square`
+|Extended square ends
+|===
+
+**State Storage:**
+
+[source,ruby]
+----
+@graphics_state[:line_cap] = "butt"  # or "round" or "square"
+----
+
+=== Line Join
+
+**PostScript Operator:** `setlinejoin`
+
+**Values:**
+
+[cols="1,1,2"]
+|===
+|PostScript Value |SVG Value |Description
+
+|`0`
+|`miter`
+|Sharp corners
+
+|`1`
+|`round`
+|Rounded corners
+
+|`2`
+|`bevel`
+|Beveled corners
+|===
+
+**State Storage:**
+
+[source,ruby]
+----
+@graphics_state[:line_join] = "miter"  # or "round" or "bevel"
+----
+
+=== Dash Pattern
+
+**PostScript Operator:** `setdash`
+
+**Format:** Array of dash lengths + offset
+
+**State Storage:**
+
+[source,ruby]
+----
+@graphics_state[:dash] = "5 3 2 3"  # SVG dash array format
+----
+
+**SVG Output:**
+
+[source,xml]
+----
+<path stroke-dasharray="5 3 2 3" ... />
+----
+
+**Example:**
+
+[source,postscript]
+----
+[5 3] 0 setdash  % 5 on, 3 off, no offset
+[10 5 2 5] 0 setdash  % 10 on, 5 off, 2 on, 5 off
+----
+
+== Clipping Path Management
+
+=== Clip Stack
+
+**Structure:**
+
+[source,ruby]
+----
+@graphics_state[:clip_stack] = []  # Array of path data strings
+----
+
+**Push Clip:**
+
+[source,ruby]
+----
+# When clip command is executed:
+clip_path_d = path_builder.to_path
+@graphics_state[:clip_stack] << clip_path_d
+----
+
+**Pop Clip:**
+
+[source,ruby]
+----
+# On grestore (if clip was active):
+# Clip stack is part of graphics state, so it's restored automatically
+----
+
+=== ClipPath Generation
+
+**Deduplication:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:282
+unless g_state[:clip_stack].empty?
+  clip_path_d = g_state[:clip_stack].last
+
+  # Check cache
+  clip_id = @clippath_cache[clip_path_d]
+  unless clip_id
+    # Create new clipPath
+    clip_id = next_clippath_id
+    @clippath_cache[clip_path_d] = clip_id
+    @svg_output[:defs] <<
+      "<clipPath clipPathUnits=\"userSpaceOnUse\" id=\"clipPath#{clip_id}\">" \
+      "<path d=\"#{clip_path_d}\" id=\"path#{clip_id}\" />" \
+      "</clipPath>"
+  end
+
+  attrs << "clip-path=\"url(#clipPath#{clip_id})\""
+end
+----
+
+**Benefits:**
+
+* Reduces SVG file size
+* Improves rendering performance
+* Maintains semantic clarity
+
+== State Immutability
+
+=== Cloning Strategy
+
+**Purpose:** Prevent unintended state mutations.
+
+**Deep Cloning:**
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:422
+def clone_graphics_state(state)
+  {
+    ctm: Matrix.new(
+      a: state[:ctm].a, b: state[:ctm].b, c: state[:ctm].c,
+      d: state[:ctm].d, e: state[:ctm].e, f: state[:ctm].f
+    ),
+    fill: state[:fill],
+    stroke: state[:stroke],
+    stroke_width: state[:stroke_width],
+    line_cap: state[:line_cap],
+    line_join: state[:line_join],
+    font: state[:font],
+    font_size: state[:font_size],
+    clip_stack: state[:clip_stack].dup,
+    dash: state[:dash],
+    last_text_pos: state[:last_text_pos]&.dup,
+    pattern: state[:pattern],
+    pattern_dict: state[:pattern_dict]&.dup,
+    icc_profile: state[:icc_profile],
+    blend_mode: state[:blend_mode],
+    soft_mask: state[:soft_mask],
+    opacity_alpha: state[:opacity_alpha],
+    shape_alpha: state[:shape_alpha]
+  }
+end
+----
+
+**Cloning Rules:**
+
+* **Primitives:** Copied by value (strings, numbers, symbols)
+* **Arrays:** Shallow copy with `.dup`
+* **Hashes:** Shallow copy with `.dup`
+* **Objects:** Deep copy (Matrix cloned with new instance)
+* **Nil Values:** Checked before duplication
+
+=== Benefits of Immutability
+
+**Correctness:**
+
+* Saved states remain unchanged
+* No accidental mutations
+* Predictable state restoration
+
+**Debugging:**
+
+* State history is preserved
+* Easy to inspect saved states
+* Clear state transitions
+
+**Thread Safety:**
+
+* No shared mutable state
+* Parallel execution possible (future enhancement)
+
+== Transform Wrapper Detection
+
+=== Purpose
+
+Determine when paths need to be wrapped in SVG `<g transform="...">` element.
+
+**Needed For:**
+
+* Rotations (non-zero b or c components)
+* Non-uniform scaling (|a| ≠ |d|)
+
+**Not Needed For:**
+
+* Pure translations
+* Uniform scaling
+* Identity matrix
+
+=== Implementation
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:351
+def needs_transform_wrapper?
+  # Not inside gsave/grestore block
+  return false if @saved_ctm_at_gsave.nil?
+
+  # CTM hasn't changed since gsave
+  return false if matrices_equal?(@graphics_state[:ctm], @saved_ctm_at_gsave)
+
+  ctm = @graphics_state[:ctm]
+
+  # Check for rotation (b or c non-zero)
+  has_rotation = ctm.b.abs > 1e-10 || ctm.c.abs > 1e-10
+
+  # Check for non-uniform scale (|a| ≠ |d|)
+  has_nonuniform_scale = (ctm.a.abs - ctm.d.abs).abs > 1e-6
+
+  has_rotation || has_nonuniform_scale
+end
+----
+
+=== Transform Wrapper Example
+
+**Without Wrapper (Translation Only):**
+
+[source,xml]
+----
+<path d="M 10 20 L 30 40" ... />
+<!-- Coordinates already transformed -->
+----
+
+**With Wrapper (Rotation):**
+
+[source,xml]
+----
+<g transform="rotate(45)">
+  <path d="M 10 20 L 30 40" ... />
+</g>
+----
+
+== State Comparison
+
+=== Matrix Equality
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:390
+def matrices_equal?(m1, m2)
+  (m1.a - m2.a).abs < 1e-10 &&
+    (m1.b - m2.b).abs < 1e-10 &&
+    (m1.c - m2.c).abs < 1e-10 &&
+    (m1.d - m2.d).abs < 1e-10 &&
+    (m1.e - m2.e).abs < 1e-10 &&
+    (m1.f - m2.f).abs < 1e-10
+end
+----
+
+**Tolerance:** `1e-10` for floating-point comparison
+
+**Use Case:** Detect if CTM has changed since `gsave`
+
+== Complete State Lifecycle Example
+
+=== PostScript Program
+
+[source,postscript]
+----
+%%BoundingBox: 0 0 200 100
+gsave
+  1 0 0 setrgbcolor       % Red
+  2 setlinewidth          % Width 2
+  10 20 translate
+  newpath
+  0 0 moveto
+  50 50 lineto
+  stroke
+grestore
+
+0 0 1 setrgbcolor         % Blue
+1 setlinewidth            % Width 1 (default)
+newpath
+70 30 moveto
+90 50 lineto
+stroke
+----
+
+=== State Transitions
+
+.State Transition Timeline
+[source]
+----
+Time | Operation          | State
+-----|-------------------|----------------------------------
+  0  | (initial)         | fill:#000, stroke:#000, width:1
+  1  | gsave             | Save state to stack
+  2  | setrgbcolor       | fill:#ff0000, stroke:#ff0000
+  3  | setlinewidth      | width:2
+  4  | translate         | ctm:[1,0,0,1,10,20]
+  5  | stroke            | Render path with red, width 2
+  6  | grestore          | Restore: fill:#000, stroke:#000, width:1
+  7  | setrgbcolor       | fill:#0000ff, stroke:#0000ff
+  8  | setlinewidth      | width:1 (explicit)
+  9  | stroke            | Render path with blue, width 1
+----
+
+=== Generated SVG
+
+[source,xml]
+----
+<g transform="translate(0 100) scale(1 -1)">
+  <g transform="translate(10 20)">
+    <path d="M 0 0 L 50 50"
+          fill="none"
+          stroke="#ff0000"
+          stroke-width="2" />
+  </g>
+  <path d="M 70 30 L 90 50"
+        fill="none"
+        stroke="#0000ff" />
+</g>
+----
+
+**Notes:**
+
+* First path wrapped in `<g>` due to translation
+* Second path not wrapped (identity CTM after restore)
+* Stroke width of 1 omitted (default value)
+
+== Performance Considerations
+
+=== Time Complexity
+
+**State Save:** O(1) - shallow copy of hash
+
+**State Restore:** O(1) - pop from stack
+
+**Matrix Operations:** O(1) - constant-time arithmetic
+
+**Path Building:** O(n) where n = number of segments
+
+**Overall:** O(n) linear in path complexity
+
+=== Space Complexity
+
+**Graphics State:** O(1) - fixed-size hash
+
+**State Stack:** O(d) where d = gsave depth
+
+**Path Builder:** O(p) where p = path segments
+
+**Clip Stack:** O(c) where c = nested clip levels
+
+**Overall:** O(d + p + c) dominated by path size
+
+=== Optimization Opportunities
+
+**Instance Pooling:**
+
+* Reuse PathBuilder instances
+* Pool Matrix objects
+* Cache color conversions
+
+**Lazy Cloning:**
+
+* Only clone on first modification (copy-on-write)
+* Share immutable components
+
+**Current Trade-off:** Prioritize correctness over performance.
+
+== Next Steps
+
+* Review link:design-decisions.adoc[Design Decisions] for architectural rationale
+* Explore link:command-registry.adoc[Command Registry] for operator implementations
+* Study link:interpreter-stage.adoc[Interpreter Stage] for execution details
+* See link:../api-reference/graphics-state.adoc[GraphicsState API Reference] for usage
+
+== Bibliography
+
+* link:interpreter-stage.adoc[Interpreter Stage Documentation]
+* link:command-registry.adoc[Command Registry Architecture]
+* link:design-decisions.adoc[Design Decisions]
+* link:../api-reference/graphics-state.adoc[GraphicsState API Reference]
+* link:../api-reference/execution-context.adoc[ExecutionContext API Reference]
+* PostScript Language Reference Manual, 3rd Edition (Adobe Systems)
+* Affine Transformations in Computer Graphics

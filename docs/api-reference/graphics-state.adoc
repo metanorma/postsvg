@@ -1,0 +1,1070 @@
+= GraphicsState Class
+:page-nav_order: 5
+:page-parent: API Reference
+
+== Purpose
+
+The [`GraphicsState`](../../lib/postsvg/graphics_state.rb:5) class manages PostScript graphics state including path construction, color settings, transformations, and rendering parameters. It provides a legacy interface for graphics operations, though most functionality has been migrated to [`ExecutionContext`](execution-context.adoc).
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:execution-context.adoc[ExecutionContext Class]
+* link:interpreter.adoc[Interpreter Class]
+* link:../architecture.adoc[Architecture Overview]
+
+== Concepts
+
+**Graphics State**:: The collection of parameters that control how graphics are rendered, including colors, line width, transformations, and the current path.
+
+**Current Path**:: The sequence of path segments (moveto, lineto, curveto) being constructed before rendering.
+
+**Current Point**:: The coordinates where the next path segment will begin.
+
+**Transformation Matrix**:: A 2D affine transformation matrix that maps coordinates from user space to device space.
+
+**Graphics State Stack**:: A stack allowing graphics state to be saved and restored via `save`/`restore` operations.
+
+**Color Space**:: The color model used for rendering (RGB, grayscale, CMYK, etc.).
+
+== Class Overview
+
+The [`GraphicsState`](../../lib/postsvg/graphics_state.rb:5) class is defined in [`lib/postsvg/graphics_state.rb`](../../lib/postsvg/graphics_state.rb:1).
+
+**Responsibilities:**
+
+* Manage current path construction
+* Track current point coordinates
+* Store color settings (fill and stroke)
+* Maintain transformation matrix
+* Implement graphics state stack (save/restore)
+* Provide coordinate transformation
+* Support Level 3 PostScript features
+
+**Note on Usage:**
+
+This class represents a legacy architecture component. In the current implementation, most graphics state functionality is handled by [`ExecutionContext`](execution-context.adoc). The `GraphicsState` class is maintained for compatibility but is not actively used in the primary execution path.
+
+**Key Components:**
+
+* Current path - Array of path segments
+* Current point - (x, y) coordinates
+* Colors - Fill and stroke RGB values
+* Transform matrix - 6-element array [a, b, c, d, e, f]
+* State stack - For save/restore operations
+
+== Class Methods
+
+=== new
+
+Create a new GraphicsState with default values.
+
+**Syntax:**
+
+[source,ruby]
+----
+graphics_state = Postsvg::GraphicsState.new <1>
+----
+<1> Initialize graphics state with defaults
+
+**Returns:**
+
+New `GraphicsState` instance with:
+
+* Empty path
+* Current point at origin (0, 0)
+* Line width of 1.0
+* Black fill and stroke colors
+* Identity transformation matrix
+* Empty state stack
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:10-26`](../../lib/postsvg/graphics_state.rb:10)
+
+**Default Values:**
+
+[source,ruby]
+----
+@current_path = []
+@current_x = 0
+@current_y = 0
+@line_width = 1.0
+@fill_color = { r: 0, g: 0, b: 0 }    # Black
+@stroke_color = { r: 0, g: 0, b: 0 }  # Black
+@transform_matrix = [1, 0, 0, 1, 0, 0] # Identity
+@state_stack = []
+
+# Level 3 features
+@icc_profile = nil
+@blend_mode = :normal
+@soft_mask = nil
+@opacity_alpha = 1.0
+@shape_alpha = 1.0
+----
+
+.Create graphics state
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+gs = Postsvg::GraphicsState.new
+
+puts "Line width: #{gs.line_width}"           # 1.0
+puts "Current point: (#{gs.current_x}, #{gs.current_y})" # (0, 0)
+puts "Fill color: #{gs.fill_color.inspect}"   # {:r=>0, :g=>0, :b=>0}
+puts "Path empty: #{gs.current_path.empty?}"  # true
+----
+====
+
+== Attributes
+
+=== line_width (read/write)
+
+The width of stroked lines.
+
+**Type:** Float
+
+**Default:** `1.0`
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:6`](../../lib/postsvg/graphics_state.rb:6)
+
+.Line width management
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+puts gs.line_width  # 1.0
+
+# Set custom width
+gs.line_width = 2.5
+puts gs.line_width  # 2.5
+
+# Thin line
+gs.line_width = 0.5
+----
+====
+
+=== current_x, current_y (read/write)
+
+Current point coordinates in user space.
+
+**Type:** Numeric
+
+**Default:** `0`
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:6-7`](../../lib/postsvg/graphics_state.rb:6)
+
+.Track current point
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+puts "(#{gs.current_x}, #{gs.current_y})"  # (0, 0)
+
+# Update via path operations
+gs.moveto(100, 200)
+puts "(#{gs.current_x}, #{gs.current_y})"  # (100, 200)
+
+gs.lineto(150, 250)
+puts "(#{gs.current_x}, #{gs.current_y})"  # (150, 250)
+----
+====
+
+=== current_path (read-only)
+
+Array of path segment objects.
+
+**Type:** Array of hashes
+
+**Default:** `[]`
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:8`](../../lib/postsvg/graphics_state.rb:8)
+
+**Path Segment Structure:**
+
+Each segment is a hash with a `:type` and coordinates:
+
+[source,ruby]
+----
+# moveto segment
+{ type: :moveto, x: 10, y: 20 }
+
+# lineto segment
+{ type: :lineto, x: 30, y: 40 }
+
+# curveto segment
+{ type: :curveto, x1: 10, y1: 20, x2: 30, y2: 40, x3: 50, y3: 60 }
+
+# closepath segment
+{ type: :closepath }
+----
+
+.Inspect path
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+gs.moveto(10, 20)
+gs.lineto(30, 40)
+gs.closepath
+
+gs.current_path.each do |segment|
+  case segment[:type]
+  when :moveto
+    puts "Move to (#{segment[:x]}, #{segment[:y]})"
+  when :lineto
+    puts "Line to (#{segment[:x]}, #{segment[:y]})"
+  when :closepath
+    puts "Close path"
+  end
+end
+----
+====
+
+=== fill_color, stroke_color (read-only)
+
+RGB color values for fill and stroke operations.
+
+**Type:** Hash with `:r`, `:g`, `:b` keys
+
+**Values:** 0.0 to 1.0 (not 0-255)
+
+**Default:** `{ r: 0, g: 0, b: 0 }` (black)
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:8`](../../lib/postsvg/graphics_state.rb:8)
+
+.Access colors
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+# Default black
+puts gs.fill_color    # {:r=>0, :g=>0, :b=>0}
+puts gs.stroke_color  # {:r=>0, :g=>0, :b=>0}
+
+# Set red
+gs.set_rgb_color(1, 0, 0)
+puts gs.fill_color    # {:r=>1, :g=>0, :b=>0}
+
+# Get as hex
+hex = gs.fill_color_hex
+puts hex  # "#ff0000"
+----
+====
+
+=== Level 3 Attributes
+
+==== icc_profile (read/write)
+
+ICC color profile for advanced color management.
+
+**Type:** Object or nil
+
+**Default:** `nil`
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:6-7`](../../lib/postsvg/graphics_state.rb:6)
+
+==== blend_mode (read/write)
+
+Blend mode for compositing operations.
+
+**Type:** Symbol
+
+**Default:** `:normal`
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:6-7`](../../lib/postsvg/graphics_state.rb:6)
+
+==== soft_mask (read/write)
+
+Soft mask for transparency effects.
+
+**Type:** Object or nil
+
+**Default:** `nil`
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:6-7`](../../lib/postsvg/graphics_state.rb:6)
+
+==== opacity_alpha (read/write)
+
+Opacity alpha value.
+
+**Type:** Float (0.0 to 1.0)
+
+**Default:** `1.0` (fully opaque)
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:6-7`](../../lib/postsvg/graphics_state.rb:6)
+
+==== shape_alpha (read/write)
+
+Shape alpha value for blending.
+
+**Type:** Float (0.0 to 1.0)
+
+**Default:** `1.0`
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:6-7`](../../lib/postsvg/graphics_state.rb:6)
+
+.Level 3 features
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+# Set transparency
+gs.opacity_alpha = 0.5  # 50% transparent
+gs.shape_alpha = 0.75
+
+# Set blend mode
+gs.blend_mode = :multiply
+
+puts "Opacity: #{gs.opacity_alpha}"    # 0.5
+puts "Blend mode: #{gs.blend_mode}"    # :multiply
+----
+====
+
+== Path Construction Methods
+
+=== moveto
+
+Move current point to new coordinates.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.moveto(x, y) <1>
+----
+<1> Move to (x, y) starting a new subpath
+
+**Where:**
+
+`x`:: X coordinate in user space
+`y`:: Y coordinate in user space
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:29-34`](../../lib/postsvg/graphics_state.rb:29)
+
+**Behavior:**
+
+* Transforms coordinates via transformation matrix
+* Updates current point
+* Adds moveto segment to path
+
+.Moveto example
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+gs.moveto(10, 20)
+
+puts gs.current_path.last
+# {:type=>:moveto, :x=>10, :y=>20}
+
+puts "(#{gs.current_x}, #{gs.current_y})"
+# (10, 20)
+----
+====
+
+=== lineto
+
+Draw line from current point to new coordinates.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.lineto(x, y) <1>
+----
+<1> Draw line to (x, y)
+
+**Where:**
+
+`x`:: X coordinate in user space
+`y`:: Y coordinate in user space
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:36-41`](../../lib/postsvg/graphics_state.rb:36)
+
+**Behavior:**
+
+* Transforms coordinates via transformation matrix
+* Updates current point
+* Adds lineto segment to path
+
+.Lineto example
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+gs.moveto(10, 20)
+gs.lineto(30, 40)
+gs.lineto(50, 60)
+
+# Path now has: moveto, lineto, lineto
+puts gs.current_path.length  # 3
+puts "(#{gs.current_x}, #{gs.current_y})"  # (50, 60)
+----
+====
+
+=== rlineto
+
+Draw line relative to current point.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.rlineto(dx, dy) <1>
+----
+<1> Draw line by relative offset (dx, dy)
+
+**Where:**
+
+`dx`:: X offset from current point
+`dy`:: Y offset from current point
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:43-46`](../../lib/postsvg/graphics_state.rb:43)
+
+.Relative lineto
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+gs.moveto(10, 20)
+
+# Draw 30 units right, 40 units up
+gs.rlineto(30, 40)
+
+puts "(#{gs.current_x}, #{gs.current_y})"  # (40, 60)
+----
+====
+
+=== curveto
+
+Draw Bézier curve from current point.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.curveto(x1, y1, x2, y2, x3, y3) <1>
+----
+<1> Draw cubic Bézier curve with two control points
+
+**Where:**
+
+`x1, y1`:: First control point
+`x2, y2`:: Second control point
+`x3, y3`:: End point
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:48-62`](../../lib/postsvg/graphics_state.rb:48)
+
+**Behavior:**
+
+* Transforms all coordinates via transformation matrix
+* Updates current point to (x3, y3)
+* Adds curveto segment to path
+
+.Curveto example
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+gs.moveto(10, 10)
+gs.curveto(20, 40, 40, 40, 50, 10)
+
+segment = gs.current_path.last
+puts segment[:type]  # :curveto
+puts "Control 1: (#{segment[:x1]}, #{segment[:y1]})"
+puts "Control 2: (#{segment[:x2]}, #{segment[:y2]})"
+puts "End: (#{segment[:x3]}, #{segment[:y3]})"
+----
+====
+
+=== closepath
+
+Close current subpath by connecting to start point.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.closepath <1>
+----
+<1> Add closepath segment to path
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:64-66`](../../lib/postsvg/graphics_state.rb:64)
+
+.Closepath example
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+# Draw triangle
+gs.moveto(10, 10)
+gs.lineto(50, 10)
+gs.lineto(30, 40)
+gs.closepath
+
+# Path is now closed triangle
+puts gs.current_path.length  # 4 segments
+puts gs.current_path.last[:type]  # :closepath
+----
+====
+
+=== newpath
+
+Clear current path and start new one.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.newpath <1>
+----
+<1> Clear all path segments
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:68-70`](../../lib/postsvg/graphics_state.rb:68)
+
+.Newpath example
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+gs.moveto(10, 10)
+gs.lineto(20, 20)
+
+puts gs.current_path.length  # 2
+
+gs.newpath
+
+puts gs.current_path.length  # 0
+puts gs.current_path.empty?  # true
+----
+====
+
+== Color Methods
+
+=== set_rgb_color
+
+Set both fill and stroke colors using RGB.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.set_rgb_color(r, g, b) <1>
+----
+<1> Set RGB color for fill and stroke
+
+**Where:**
+
+`r`:: Red component (0.0 to 1.0)
+`g`:: Green component (0.0 to 1.0)
+`b`:: Blue component (0.0 to 1.0)
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:73-77`](../../lib/postsvg/graphics_state.rb:73)
+
+.Set RGB color
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+# Set to red
+gs.set_rgb_color(1, 0, 0)
+
+puts gs.fill_color    # {:r=>1, :g=>0, :b=>0}
+puts gs.stroke_color  # {:r=>1, :g=>0, :b=>0}
+
+# Set to semi-transparent blue
+gs.set_rgb_color(0, 0, 0.5)
+
+# Convert to hex
+puts gs.fill_color_hex  # "#000080"
+----
+====
+
+=== set_gray
+
+Set grayscale color (same value for R, G, B).
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.set_gray(gray) <1>
+----
+<1> Set grayscale value for fill and stroke
+
+**Where:**
+
+`gray`:: Gray level (0.0 = black, 1.0 = white)
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:79-81`](../../lib/postsvg/graphics_state.rb:79)
+
+.Set grayscale
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+# Set to 50% gray
+gs.set_gray(0.5)
+
+puts gs.fill_color  # {:r=>0.5, :g=>0.5, :b=>0.5}
+
+# White
+gs.set_gray(1.0)
+puts gs.fill_color_hex  # "#ffffff"
+
+# Black
+gs.set_gray(0)
+puts gs.fill_color_hex  # "#000000"
+----
+====
+
+=== rgb_to_hex
+
+Convert RGB values to hex color string.
+
+**Syntax:**
+
+[source,ruby]
+----
+hex = gs.rgb_to_hex(r, g, b) <1>
+----
+<1> Convert RGB components to hex string
+
+**Where:**
+
+`r, g, b`:: Color components (0.0 to 1.0)
+
+**Returns:**
+
+String in format `"#RRGGBB"`
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:153-155`](../../lib/postsvg/graphics_state.rb:153)
+
+.RGB to hex conversion
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+hex = gs.rgb_to_hex(1, 0, 0)
+puts hex  # "#ff0000" (red)
+
+hex = gs.rgb_to_hex(0, 0.5, 1)
+puts hex  # "#0080ff" (light blue)
+
+hex = gs.rgb_to_hex(0.5, 0.5, 0.5)
+puts hex  # "#808080" (gray)
+----
+====
+
+=== fill_color_hex
+
+Get current fill color as hex string.
+
+**Syntax:**
+
+[source,ruby]
+----
+hex = gs.fill_color_hex <1>
+----
+<1> Convert current fill color to hex
+
+**Returns:**
+
+Hex color string or `"none"` if not RGB
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:157-162`](../../lib/postsvg/graphics_state.rb:157)
+
+=== stroke_color_hex
+
+Get current stroke color as hex string.
+
+**Syntax:**
+
+[source,ruby]
+----
+hex = gs.stroke_color_hex <1>
+----
+<1> Convert current stroke color to hex
+
+**Returns:**
+
+Hex color string or `"none"` if not RGB
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:164-169`](../../lib/postsvg/graphics_state.rb:164)
+
+.Color hex conversion
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+gs.set_rgb_color(1, 0.5, 0)  # Orange
+
+puts gs.fill_color_hex    # "#ff8000"
+puts gs.stroke_color_hex  # "#ff8000"
+
+# Change to blue
+gs.set_rgb_color(0, 0, 1)
+puts gs.fill_color_hex    # "#0000ff"
+----
+====
+
+== Graphics State Stack
+
+=== save
+
+Save current graphics state onto stack.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.save <1>
+----
+<1> Push current state onto graphics state stack
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:84-99`](../../lib/postsvg/graphics_state.rb:84)
+
+**Saved State:**
+
+* Current path (copy)
+* Current point (x, y)
+* Line width
+* Fill color (copy)
+* Stroke color (copy)
+* Transformation matrix (copy)
+* All Level 3 properties
+
+.Save graphics state
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+# Set initial state
+gs.set_rgb_color(1, 0, 0)  # Red
+gs.line_width = 2
+
+# Save state
+gs.save
+
+# Modify state
+gs.set_rgb_color(0, 0, 1)  # Blue
+gs.line_width = 5
+
+puts gs.fill_color_hex  # "#0000ff"
+puts gs.line_width      # 5
+
+# Restore state
+gs.restore
+
+puts gs.fill_color_hex  # "#ff0000"
+puts gs.line_width      # 2
+----
+====
+
+=== restore
+
+Restore previously saved graphics state.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.restore <1>
+----
+<1> Pop state from stack and apply
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:101-117`](../../lib/postsvg/graphics_state.rb:101)
+
+**Behavior:**
+
+Does nothing if state stack is empty.
+
+.Nested save/restore
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+gs.set_rgb_color(1, 0, 0)  # Red
+gs.save
+
+gs.set_rgb_color(0, 1, 0)  # Green
+gs.save
+
+gs.set_rgb_color(0, 0, 1)  # Blue
+puts gs.fill_color_hex     # "#0000ff"
+
+gs.restore
+puts gs.fill_color_hex     # "#00ff00"
+
+gs.restore
+puts gs.fill_color_hex     # "#ff0000"
+----
+====
+
+== Transformation Methods
+
+=== translate
+
+Apply translation transformation.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.translate(tx, ty) <1>
+----
+<1> Translate by (tx, ty)
+
+**Where:**
+
+`tx`:: X translation amount
+`ty`:: Y translation amount
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:120-124`](../../lib/postsvg/graphics_state.rb:120)
+
+**Effect:**
+
+Modifies transformation matrix to shift coordinate system.
+
+.Translation example
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+# Translate 100 right, 50 up
+gs.translate(100, 50)
+
+# Draw at "origin" in new coordinate system
+gs.moveto(0, 0)
+
+# Actually at (100, 50) in device space
+puts "(#{gs.current_x}, #{gs.current_y})"  # (100, 50)
+----
+====
+
+=== scale
+
+Apply scaling transformation.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.scale(sx, sy) <1>
+----
+<1> Scale by factors (sx, sy)
+
+**Where:**
+
+`sx`:: X scale factor
+`sy`:: Y scale factor
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:126-132`](../../lib/postsvg/graphics_state.rb:126)
+
+.Scaling example
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+# Scale 2x in X, 3x in Y
+gs.scale(2, 3)
+
+# Draw unit square
+gs.moveto(0, 0)
+gs.lineto(1, 0)
+gs.lineto(1, 1)
+gs.lineto(0, 1)
+gs.closepath
+
+# Actually 2x3 rectangle in device space
+----
+====
+
+=== rotate
+
+Apply rotation transformation.
+
+**Syntax:**
+
+[source,ruby]
+----
+gs.rotate(angle) <1>
+----
+<1> Rotate by angle in degrees
+
+**Where:**
+
+`angle`:: Rotation angle in degrees (positive = counter-clockwise)
+
+**Source:**
+
+[`lib/postsvg/graphics_state.rb:134-150`](../../lib/postsvg/graphics_state.rb:134)
+
+.Rotation example
+[example]
+====
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+# Rotate 45 degrees
+gs.rotate(45)
+
+# Draw horizontal line in rotated space
+gs.moveto(0, 0)
+gs.lineto(100, 0)
+
+# Line actually at 45-degree angle in device space
+----
+====
+
+## Usage Notes
+
+=== Legacy Status
+
+**Important:** This class is part of the legacy architecture. The current implementation primarily uses [`ExecutionContext`](execution-context.adoc) for graphics state management.
+
+**Current Usage:**
+
+* Not actively used in primary execution path
+* Maintained for compatibility
+* May be referenced by legacy code or tests
+
+**Recommended Alternative:**
+
+Use [`ExecutionContext`](execution-context.adoc) for all new code:
+
+[source,ruby]
+----
+# Instead of GraphicsState
+context = Postsvg::ExecutionContext.new
+
+# Access graphics state via context
+context.graphics_state[:fill] = "red"
+context.graphics_state[:stroke_width] = 2
+----
+
+=== Coordinate Transformations
+
+All path operations automatically apply the transformation matrix:
+
+[source,ruby]
+----
+gs = Postsvg::GraphicsState.new
+
+gs.translate(10, 20)
+gs.scale(2, 2)
+
+# Coordinates are transformed before being added to path
+gs.moveto(5, 5)  # Becomes (20, 30) after transforms
+----
+
+## Thread Safety
+
+The `GraphicsState` class is **not thread-safe**. Each thread should have its own instance.
+
+== Next Steps
+
+* Review link:execution-context.adoc[ExecutionContext] for current state management
+* Learn about link:interpreter.adoc[Interpreter Class] for execution flow
+* See link:../architecture.adoc[Architecture] for system design
+* Check link:converter.adoc[Converter Class] for high-level API
+
+== Bibliography
+
+* link:execution-context.adoc[ExecutionContext Documentation]
+* link:interpreter.adoc[Interpreter Class Documentation]
+* link:converter.adoc[Converter Class Documentation]
+* link:../architecture.adoc[Architecture Overview]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual]

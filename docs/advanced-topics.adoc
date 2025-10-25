@@ -1,0 +1,370 @@
+= Advanced Topics
+:page-nav_order: 7
+
+== Purpose
+
+This section covers advanced Postsvg usage patterns, optimization techniques, and complex scenarios. These topics are intended for users who need to extend Postsvg, integrate it into complex workflows, or handle edge cases.
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:api-reference.adoc[API Reference]
+* link:architecture.adoc[Architecture Documentation]
+* link:development.adoc[Development Guide]
+
+== Concepts
+
+**Strict Mode**:: A validation mode that fails on unknown or unsupported operators.
+
+**BoundingBox Handling**:: Extracting and applying document dimensions from PostScript comments.
+
+**Custom Operators**:: Extending Postsvg with custom PostScript operator implementations.
+
+**Error Recovery**:: Strategies for handling malformed or partially valid PostScript files.
+
+**Optimization Techniques**:: Methods for improving conversion performance and output quality.
+
+== Advanced Topics
+
+link:advanced-topics/custom-operators.adoc[**Custom Operators**]::
+How to extend Postsvg by implementing custom PostScript operators.
+
+link:advanced-topics/strict-mode.adoc[**Strict Mode**]::
+Enable strict validation to catch unknown operators and ensure complete PostScript support.
+
+link:advanced-topics/bounding-box-handling.adoc[**BoundingBox Handling**]::
+Extract, validate, and apply BoundingBox information for proper SVG dimensions.
+
+link:advanced-topics/error-handling.adoc[**Error Handling**]::
+Strategies for handling conversion errors, validation failures, and partial conversions.
+
+link:advanced-topics/memory-considerations.adoc[**Memory Considerations**]::
+Handling large PostScript files, memory optimization, and batch processing strategies.
+
+link:advanced-topics/compatibility.adoc[**ps2svg Compatibility**]::
+Compatibility notes, differences, and migration guide from ps2svg.
+
+== Strict Mode
+
+Strict mode causes Postsvg to fail immediately when encountering unknown operators:
+
+[source,ruby]
+----
+# Enable strict mode
+converter = Postsvg::Converter.new(
+  ps_content,
+  strict_mode: true
+)
+
+begin
+  svg = converter.convert
+rescue Postsvg::Error => e
+  puts "Unknown operator: #{e.message}"
+end
+----
+
+**Use Cases:**
+* Development and testing
+* Ensuring complete PostScript support
+* Validating operator coverage
+* Debugging conversion issues
+
+**Trade-offs:**
+* May fail on harmless unsupported operators
+* More verbose error handling required
+* Not suitable for production with varied input
+
+== Custom Operator Implementation
+
+.Implementing a custom operator
+[example]
+====
+[source,ruby]
+----
+module Postsvg
+  module Commands
+    class CustomRect < Base
+      def execute(context)
+        # Pop arguments: width height x y
+        height = context.pop_number
+        width = context.pop_number
+        y = context.pop_number
+        x = context.pop_number
+
+        # Draw rectangle using existing operators
+        context.graphics_state.newpath
+        context.graphics_state.moveto(x, y)
+        context.graphics_state.lineto(x + width, y)
+        context.graphics_state.lineto(x + width, y + height)
+        context.graphics_state.lineto(x, y + height)
+        context.graphics_state.closepath
+      end
+    end
+  end
+end
+
+# Register custom operator
+Postsvg::Commands::Registry.register('customrect',
+  Postsvg::Commands::CustomRect.new)
+----
+
+This implements a `customrect` operator that takes four arguments (x, y, width, height) and constructs a rectangular path.
+====
+
+== BoundingBox Extraction
+
+PostScript files may contain BoundingBox comments in different formats:
+
+[source,postscript]
+----
+%%BoundingBox: 0 0 612 792          # Standard
+%%BoundingBox: (atend)               # Deferred
+%%HiResBoundingBox: 0 0 612.5 792.5  # High resolution
+----
+
+Postsvg handles BoundingBox extraction:
+
+[source,ruby]
+----
+# Automatic extraction
+converter = Postsvg::Converter.new(ps_content)
+svg = converter.convert  # Uses extracted BoundingBox
+
+# Manual override
+bbox = { llx: 0, lly: 0, urx: 100, ury: 100,
+         width: 100, height: 100 }
+interpreter = Postsvg::Interpreter.new
+result = interpreter.interpret(tokens, bbox)
+----
+
+**Fallback Behavior:**
+If no BoundingBox is found, Postsvg defaults to 1920x1080 (Full HD).
+
+== Error Recovery Strategies
+
+=== Graceful Degradation
+
+[source,ruby]
+----
+def safe_convert(ps_files)
+  results = []
+
+  ps_files.each do |file|
+    begin
+      # Try strict conversion first
+      converter = Postsvg::Converter.new(
+        File.read(file),
+        strict_mode: true
+      )
+      svg = converter.convert
+      results << { file: file, status: :success, svg: svg }
+    rescue Postsvg::Error => e
+      # Fall back to lenient mode
+      converter = Postsvg::Converter.new(
+        File.read(file),
+        strict_mode: false
+      )
+      begin
+        svg = converter.convert
+        results << {
+          file: file,
+          status: :partial,
+          svg: svg,
+          warning: e.message
+        }
+      rescue StandardError => e2
+        results << {
+          file: file,
+          status: :failed,
+          error: e2.message
+        }
+      end
+    end
+  end
+
+  results
+end
+----
+
+=== Validation Before Conversion
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Validate first
+validation = Postsvg::Services::ValidationService.new(
+  ps_content,
+  'file.ps',
+  level: :semantic
+)
+
+result = validation.validate
+
+if result.valid?
+  # Safe to convert
+  svg = Postsvg.convert(ps_content)
+else
+  # Handle errors
+  puts "Validation errors:"
+  result.errors.each { |e| puts "  - #{e}" }
+end
+----
+
+== Memory Optimization
+
+For large files or batch processing:
+
+=== Streaming Approach
+
+[source,ruby]
+----
+# Process files one at a time
+Dir.glob('*.ps').each do |file|
+  ps_content = File.read(file)
+  svg = Postsvg.convert(ps_content)
+  File.write(file.sub('.ps', '.svg'), svg)
+
+  # Explicitly clear
+  ps_content = nil
+  svg = nil
+  GC.start
+end
+----
+
+=== Batch Size Limiting
+
+[source,ruby]
+----
+# Process in batches
+files = Dir.glob('*.ps')
+batch_size = 10
+
+files.each_slice(batch_size) do |batch|
+  threads = batch.map do |file|
+    Thread.new do
+      Postsvg.convert_file(file, file.sub('.ps', '.svg'))
+    end
+  end
+
+  threads.each(&:join)
+  GC.start  # Clean up between batches
+end
+----
+
+== Advanced Validation
+
+=== Custom Validation Rules
+
+[source,ruby]
+----
+# Validate specific features
+class CustomValidator
+  def initialize(ps_content)
+    @content = ps_content
+  end
+
+  def validate_encoding
+    # Check for specific encoding
+    @content.match?(/%!PS-Adobe-3\.0/)
+  end
+
+  def validate_fonts
+    # Ensure no font operations
+    !@content.match?(/\b(findfont|setfont|show)\b/)
+  end
+
+  def validate_images
+    # Ensure no image operations
+    !@content.match?(/\b(image|imagemask)\b/)
+  end
+end
+
+validator = CustomValidator.new(ps_content)
+puts "Valid encoding: #{validator.validate_encoding}"
+puts "No fonts: #{validator.validate_fonts}"
+puts "No images: #{validator.validate_images}"
+----
+
+== Performance Profiling
+
+[source,ruby]
+----
+require 'benchmark'
+require 'postsvg'
+
+ps_content = File.read('large_file.ps')
+
+time = Benchmark.measure do
+  svg = Postsvg.convert(ps_content)
+end
+
+puts "Conversion time: #{time.real}s"
+puts "Memory used: #{GC.stat[:total_allocated_objects]} objects"
+----
+
+== Integration Patterns
+
+=== Rails Integration
+
+[source,ruby]
+----
+# app/services/postscript_converter.rb
+class PostscriptConverter
+  def self.convert(uploaded_file)
+    ps_content = uploaded_file.read
+
+    svg = Postsvg.convert(ps_content)
+
+    # Store SVG
+    svg_file = Tempfile.new(['converted', '.svg'])
+    svg_file.write(svg)
+    svg_file.rewind
+
+    svg_file
+  end
+end
+
+# In controller
+class DocumentsController < ApplicationController
+  def convert
+    ps_file = params[:file]
+    svg_file = PostscriptConverter.convert(ps_file)
+
+    send_file svg_file.path,
+              filename: 'converted.svg',
+              type: 'image/svg+xml'
+  end
+end
+----
+
+=== Rake Task Integration
+
+[source,ruby]
+----
+# lib/tasks/convert.rake
+namespace :postscript do
+  desc "Convert all PS files to SVG"
+  task :convert => :environment do
+    Dir.glob(Rails.root.join('public', 'ps', '*.ps')).each do |file|
+      output = file.sub('.ps', '.svg')
+      Postsvg.convert_file(file, output)
+      puts "Converted #{File.basename(file)}"
+    end
+  end
+end
+----
+
+== Next Steps
+
+* Explore link:development.adoc[Development Guide] for extending Postsvg
+* Review link:architecture.adoc[Architecture] for implementation details
+* Check link:troubleshooting.adoc[Troubleshooting] for common issues
+* See link:api-reference.adoc[API Reference] for detailed method documentation
+
+== Bibliography
+
+* link:advanced-topics/custom-operators.adoc[Custom Operators Guide]
+* link:advanced-topics/strict-mode.adoc[Strict Mode Documentation]
+* link:advanced-topics/error-handling.adoc[Error Handling Strategies]
+* link:https://www.adobe.com/products/postscript/pdfs/PLRM.pdf[PostScript Language Reference]

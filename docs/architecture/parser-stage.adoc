@@ -1,0 +1,1051 @@
+
+= Parser Stage
+:page-nav_order: 2
+
+== Purpose
+
+This document describes the Parser Stage of Postsvg's conversion pipeline, which transforms raw PostScript source code into structured tokens through lexical analysis. Understanding the parser helps developers comprehend token classification, string handling, number parsing, and how PostScript syntax is decomposed for interpretation.
+
+== References
+
+* link:../architecture.adoc[Architecture Overview]
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:interpreter-stage.adoc[Interpreter Stage]
+* link:../api-reference/tokenizer.adoc[Tokenizer API Reference]
+
+== Concepts
+
+**Lexical Analysis**:: Breaking source code into smallest meaningful units (tokens).
+
+**Token Classification**:: Determining token type (number, operator, string, etc.) during scanning.
+
+**Single-Pass Scanning**:: Processing input characters once, left-to-right, with no backtracking.
+
+**Comment Removal**:: Eliminating PostScript comments before tokenization.
+
+**Escape Sequence Handling**:: Processing backslash escapes in strings and hex strings.
+
+== Tokenizer Architecture
+
+=== Class Structure
+
+**Location:** [`lib/postsvg/tokenizer.rb`](../../lib/postsvg/tokenizer.rb:8)
+
+**Responsibilities:**
+
+* Character-by-character scanning
+* Token type classification
+* String and number parsing
+* Whitespace skipping
+* Comment removal
+
+**Design Pattern:** Static utility class with class methods (no instance state).
+
+=== Token Structure
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:5
+Token = Struct.new(:type, :value, keyword_init: true)
+
+# Usage:
+Token.new(type: "number", value: "42")
+Token.new(type: "operator", value: "moveto")
+Token.new(type: "string", value: "Hello World")
+----
+
+**Token Fields:**
+
+* `type` - String identifier for token classification
+* `value` - String representation of the token's value
+
+== Token Types
+
+=== Complete Token Type Taxonomy
+
+[cols="1,2,2"]
+|===
+|Token Type |Example Input |Token Value
+
+|`number`
+|`42`, `3.14`, `1.5e-3`
+|`"42"`, `"3.14"`, `"1.5e-3"`
+
+|`operator`
+|`moveto`, `add`, `gsave`
+|`"moveto"`, `"add"`, `"gsave"`
+
+|`name`
+|`/Helvetica`, `/Pattern1`
+|`"Helvetica"`, `"Pattern1"` (without `/`)
+
+|`string`
+|`(Hello)`, `(nested (parens))`
+|`"Hello"`, `"nested (parens)"`
+
+|`hexstring`
+|`<48656C6C6F>`, `<DEADBEEF>`
+|Decoded binary string
+
+|`brace`
+|`{`, `}`
+|`"{"`, `"}"`
+
+|`bracket`
+|`[`, `]`
+|`"["`, `"]"`
+
+|`dict`
+|`<<`, `>>`
+|`"<<"`, `">>"`
+|===
+
+=== Type Classification Rules
+
+**Numbers:** Match regex `-?(?:\d+\.\d+|\d+\.|\.\d+|\d+)(?:[eE][+-]?\d+)?`
+
+**Names:** Start with `/`, followed by identifier characters
+
+**Operators:** Identifier characters without leading `/`
+
+**Strings:** Enclosed in parentheses `(...)`, supports nesting
+
+**Hex Strings:** Enclosed in angle brackets `<...>` (not `<<`)
+
+**Delimiters:** Single or double character delimiters
+
+== Tokenization Algorithm
+
+=== Main Tokenization Loop
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:9
+def self.tokenize(ps_code)
+  # Step 1: Remove comments (% to end of line)
+  ps = ps_code.gsub(/%[^\n\r]*/, " ")
+
+  tokens = []
+  index = 0
+
+  # Step 2: Scan character by character
+  while index < ps.length
+    # Skip whitespace
+    index += 1 while index < ps.length && ps[index].match?(/\s/)
+    break if index >= ps.length
+
+    # Try to match a token
+    token, new_index = match_token(ps, index)
+    if token
+      tokens << token
+      index = new_index
+    else
+      # Skip invalid character
+      index += 1
+    end
+  end
+
+  tokens
+end
+----
+
+**Algorithm Steps:**
+
+1. **Preprocess:** Remove all comments
+2. **Skip Whitespace:** Advance past spaces, tabs, newlines
+3. **Match Token:** Attempt to identify token type
+4. **Advance Index:** Move past consumed characters
+5. **Repeat:** Continue until end of input
+
+=== Comment Removal
+
+**Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:11
+ps = ps_code.gsub(/%[^\n\r]*/, " ")
+----
+
+**Behavior:**
+
+* Removes `%` character and everything until newline
+* Replaces with space to maintain character positions
+* Handles both Unix (`\n`) and Windows (`\r\n`) line endings
+
+**Example:**
+
+[source,postscript]
+----
+% This is a comment
+100 50 moveto  % Move to position
+stroke         % Draw the line
+----
+
+**After Comment Removal:**
+
+[source,postscript]
+----
+
+100 50 moveto
+stroke
+----
+
+=== Token Matching Strategy
+
+The tokenizer tries patterns in priority order:
+
+.Token Matching Priority
+[source]
+----
+1. Strings:      (...)
+2. Numbers:      123, 3.14, 1.5e-3
+3. Braces:       { }
+4. Brackets:     [ ]
+5. Dicts:        << >>
+6. Hex Strings:  <...>
+7. Names/Ops:    /name or operator
+----
+
+**Why Priority Matters:**
+
+* `<<` must be checked before `<` (dict vs hex string)
+* Numbers must be checked before operators (avoid parsing digits as operator names)
+* Strings must be checked early (contain arbitrary characters)
+
+== Number Parsing
+
+=== Number Recognition
+
+**Regex Pattern:**
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:40
+-?(?:\d+\.\d+|\d+\.|\.\d+|\d+)(?:[eE][+-]?\d+)?
+----
+
+**Pattern Breakdown:**
+
+[source]
+----
+-?                      # Optional minus sign
+(?:                     # Non-capturing group for number formats:
+  \d+\.\d+              #   123.456 (decimal with digits on both sides)
+  | \d+\.               #   123. (decimal with trailing dot)
+  | \.\d+               #   .456 (decimal with leading dot)
+  | \d+                 #   123 (integer)
+)
+(?:[eE][+-]?\d+)?      # Optional scientific notation: e+10, E-5
+----
+
+=== Number Examples
+
+[cols="1,2,1"]
+|===
+|Input |Token Value |Converted To
+
+|`42`
+|`"42"`
+|`42` (Integer)
+
+|`-17`
+|`"-17"`
+|`-17` (Integer)
+
+|`3.14`
+|`"3.14"`
+|`3.14` (Float)
+
+|`123.`
+|`"123."`
+|`123.0` (Float)
+
+|`.5`
+|`".5"`
+|`0.5` (Float)
+
+|`1.5e-3`
+|`"1.5e-3"`
+|`0.0015` (Float)
+
+|`2E10`
+|`"2E10"`
+|`20000000000.0` (Float)
+|===
+
+=== Integer vs Float Detection
+
+The Interpreter (not Tokenizer) determines integer vs float:
+
+[source,ruby]
+----
+# In Interpreter
+num_str = token.value
+num = if num_str.include?(".") || num_str.match?(/[eE]/)
+        num_str.to_f  # Float
+      else
+        num_str.to_i  # Integer
+      end
+----
+
+**Rules:**
+
+* Contains `.` → Float
+* Contains `e` or `E` → Float
+* Otherwise → Integer
+
+== String Parsing
+
+=== Regular Strings
+
+**Syntax:** Enclosed in parentheses `(...)`
+
+**Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:79
+def self.match_string(ps, index)
+  result = +""
+  i = index + 1  # Skip opening (
+  depth = 1      # Track nesting level
+
+  while i < ps.length && depth > 0
+    case ps[i]
+    when "\\"
+      # Handle escape sequence
+      i += 1
+      result << process_escape(ps[i])
+    when "("
+      depth += 1
+      result << ps[i]
+    when ")"
+      depth -= 1
+      return [Token.new(type: "string", value: result), i + 1] if depth == 0
+      result << ps[i]
+    else
+      result << ps[i]
+    end
+    i += 1
+  end
+
+  [Token.new(type: "string", value: result), i]
+end
+----
+
+**Features:**
+
+* **Nesting Support:** Tracks parenthesis depth for nested strings
+* **Escape Sequences:** Processes backslash escapes
+* **Boundary Tracking:** Returns position after closing parenthesis
+
+=== String Nesting
+
+**Example:**
+
+[source,postscript]
+----
+(This is a (nested (string)))
+----
+
+**Depth Tracking:**
+
+[source]
+----
+Character:  (  T  h  i  s     i  s     a     (  n  e  s  t  e  d     (  s  t  r  i  n  g  )  )  )
+Depth:      1  1  1  1  1  1  1  1  1  1  1  2  2  2  2  2  2  2  2  3  3  3  3  3  3  3  2  1  0
+            ^                                                                                    ^
+         Start                                                                              End
+----
+
+**Result:** `"This is a (nested (string))"`
+
+=== Escape Sequences
+
+**Standard Escapes:**
+
+[cols="1,2,1"]
+|===
+|Escape |Meaning |Result
+
+|`\n`
+|Newline
+|U+000A
+
+|`\r`
+|Carriage return
+|U+000D
+
+|`\t`
+|Tab
+|U+0009
+
+|`\b`
+|Backspace
+|U+0008
+
+|`\f`
+|Form feed
+|U+000C
+
+|`\\`
+|Backslash
+|`\`
+
+|`\(`
+|Left parenthesis
+|`(`
+
+|`\)`
+|Right parenthesis
+|`)`
+|===
+
+**Octal Escapes:**
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:103
+# \ddd where d = 0-7 (octal digit)
+if ps[i].between?("0", "7")
+  octal = ps[i]
+  # Read up to 3 octal digits
+  i += 1
+  if i < ps.length && ps[i].between?("0", "7")
+    octal += ps[i]
+    i += 1
+    if i < ps.length && ps[i].between?("0", "7")
+      octal += ps[i]
+      i += 1
+    end
+  end
+  code = octal.to_i(8)
+  code = 255 if code > 255  # Clamp to valid range
+  result << code.chr
+end
+----
+
+**Octal Examples:**
+
+[source]
+----
+\101   → 'A' (65 in decimal)
+\102   → 'B' (66 in decimal)
+\040   → ' ' (32 in decimal, space)
+\012   → '\n' (10 in decimal, newline)
+\377   → 'ÿ' (255 in decimal, max byte)
+----
+
+=== String Examples
+
+[cols="1,2"]
+|===
+|Input |Decoded Value
+
+|`(Hello)`
+|`"Hello"`
+
+|`(Hello\nWorld)`
+|`"Hello\nWorld"` (with newline)
+
+|`(Tab\there)`
+|`"Tab\there"` (with tab)
+
+|`(Quote \(this\))`
+|`"Quote (this)"`
+
+|`(Backslash \\)`
+|`"Backslash \"`
+
+|`(Nested (string))`
+|`"Nested (string)"`
+
+|`(Octal \101\102\103)`
+|`"Octal ABC"`
+|===
+
+== Hex String Parsing
+
+=== Hex String Syntax
+
+**Format:** `<hexdigits>` (angle brackets, not `<<`)
+
+**Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:142
+def self.match_hex_string(ps, index)
+  i = index + 1
+  hex_content = +""
+
+  # Collect hex digits (skip whitespace)
+  while i < ps.length && ps[i] != ">"
+    hex_content << ps[i] unless ps[i].match?(/\s/)
+    i += 1
+  end
+
+  # Convert hex pairs to bytes
+  str = +""
+  (0...hex_
+content.length).step(2) do |j|
+    byte = hex_content[j, 2]
+    str << byte.to_i(16).chr
+  end
+
+  [Token.new(type: "hexstring", value: str), i + 1]
+end
+----
+
+**Features:**
+
+* **Whitespace Skipping:** Ignores spaces, tabs, newlines in hex data
+* **Pair Processing:** Converts each hex pair to a byte
+* **Binary Output:** Returns binary string (not hex text)
+
+=== Hex String Examples
+
+[cols="1,1,2"]
+|===
+|Input |Hex Content |Decoded Value
+
+|`<48656C6C6F>`
+|`48656C6C6F`
+|`"Hello"` (bytes: 0x48='H', 0x65='e', 0x6C='l', 0x6C='l', 0x6F='o')
+
+|`<48 65 6C 6C 6F>`
+|`48656C6C6F`
+|`"Hello"` (whitespace ignored)
+
+|`<DEADBEEF>`
+|`DEADBEEF`
+|Binary: 0xDE, 0xAD, 0xBE, 0xEF
+
+|`<>`
+|Empty
+|`""` (empty string)
+
+|`<FF00>`
+|`FF00`
+|Binary: 0xFF, 0x00
+|===
+
+=== Odd-Length Hex Strings
+
+PostScript specification allows odd-length hex strings (implicit trailing 0):
+
+[source,postscript]
+----
+<ABC>   → Equivalent to <ABC0>
+<1>     → Equivalent to <10>
+----
+
+**Current Implementation:** Handles odd lengths by processing pairs:
+
+[source]
+----
+<ABC>:
+  Pair 1: "AB" → 0xAB
+  Pair 2: "C" → "C" (single char, .to_i(16) = 12 = 0x0C)
+----
+
+== Name and Operator Parsing
+
+=== Identifier Pattern
+
+**Regex:**
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:65
+%r{\A/?[A-Za-z_\-.?*][A-Za-z0-9_\-.?*]*}
+----
+
+**Pattern Breakdown:**
+
+[source]
+----
+\A              # Start of string
+/?              # Optional leading slash
+[A-Za-z_\-.?*]  # First character: letter, underscore, or special
+[A-Za-z0-9_\-.?*]*  # Subsequent: letter, digit, or special
+----
+
+**Allowed Characters:**
+
+* Letters: `A-Z`, `a-z`
+* Digits: `0-9` (not as first character after `/`)
+* Special: `_`, `-`, `.`, `?`, `*`
+
+=== Name vs Operator Classification
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:66
+value = match[0]
+if value.start_with?("/")
+  # Name: remove leading slash
+  return [Token.new(type: "name", value: value[1..]), index + value.length]
+else
+  # Operator
+  return [Token.new(type: "operator", value: value), index + value.length]
+end
+----
+
+**Rule:** Leading `/` indicates a name (literal), otherwise it's an operator.
+
+=== Name Examples
+
+[cols="1,1,2"]
+|===
+|Input |Token Type |Token Value
+
+|`/Helvetica`
+|`name`
+|`"Helvetica"`
+
+|`/Pattern1`
+|`name`
+|`"Pattern1"`
+
+|`/my-font`
+|`name`
+|`"my-font"`
+
+|`/font.size`
+|`name`
+|`"font.size"`
+
+|`/Color?`
+|`name`
+|`"Color?"`
+|===
+
+=== Operator Examples
+
+[cols="1,1"]
+|===
+|Input |Token Value
+
+|`moveto`
+|`"moveto"`
+
+|`setrgbcolor`
+|`"setrgbcolor"`
+
+|`add`
+|`"add"`
+
+|`gsave`
+|`"gsave"`
+
+|`showpage`
+|`"showpage"`
+|===
+
+== Delimiter Parsing
+
+=== Brace Delimiters
+
+**Tokens:** `{` and `}`
+
+**Purpose:** Mark procedure boundaries
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:46
+return [Token.new(type: "brace", value: ps[index]), index + 1]
+  if ["{", "}"].include?(ps[index])
+----
+
+**Example:**
+
+[source,postscript]
+----
+{ 1 add } def
+----
+
+**Tokens:**
+
+[source]
+----
+Token(type: "brace", value: "{")
+Token(type: "number", value: "1")
+Token(type: "operator", value: "add")
+Token(type: "brace", value: "}")
+Token(type: "operator", value: "def")
+----
+
+=== Bracket Delimiters
+
+**Tokens:** `[` and `]`
+
+**Purpose:** Mark array boundaries
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:50
+return [Token.new(type: "bracket", value: ps[index]), index + 1]
+  if ["[", "]"].include?(ps[index])
+----
+
+**Example:**
+
+[source,postscript]
+----
+[1 2 3] def
+----
+
+**Tokens:**
+
+[source]
+----
+Token(type: "bracket", value: "[")
+Token(type: "number", value: "1")
+Token(type: "number", value: "2")
+Token(type: "number", value: "3")
+Token(type: "bracket", value: "]")
+Token(type: "operator", value: "def")
+----
+
+=== Dictionary Delimiters
+
+**Tokens:** `<<` and `>>`
+
+**Purpose:** Mark dictionary boundaries
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:54
+return [Token.new(type: "dict", value: ps[index, 2]), index + 2]
+  if ["<<", ">>"].include?(ps[index, 2])
+----
+
+**Priority:** Must check before `<` (hex string) to avoid misidentification
+
+**Example:**
+
+[source,postscript]
+----
+<< /Type /Pattern >>
+----
+
+**Tokens:**
+
+[source]
+----
+Token(type: "dict", value: "<<")
+Token(type: "name", value: "Type")
+Token(type: "name", value: "Pattern")
+Token(type: "dict", value: ">>")
+----
+
+== Whitespace Handling
+
+=== Whitespace Characters
+
+**Recognized as whitespace:**
+
+* Space (0x20)
+* Tab (0x09)
+* Newline (0x0A)
+* Carriage return (0x0D)
+* Form feed (0x0C)
+
+**Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:18
+index += 1 while index < ps.length && ps[index].match?(/\s/)
+----
+
+**Regex:** `/\s/` matches all Unicode whitespace
+
+=== Whitespace Significance
+
+**Token Separation:** Whitespace separates tokens but is not itself a token.
+
+**Example:**
+
+[source,postscript]
+----
+100 50 moveto
+----
+
+**Without whitespace (invalid):**
+
+[source,postscript]
+----
+10050moveto  → Would tokenize as number "10050" + operator "moveto"
+----
+
+**In Strings:** Whitespace inside strings is preserved:
+
+[source,postscript]
+----
+(Hello   World)  → "Hello   World" (3 spaces preserved)
+----
+
+== Complete Tokenization Example
+
+=== Input PostScript
+
+[source,postscript]
+----
+%%BoundingBox: 0 0 200 100
+% Draw a rectangle
+/Helvetica findfont 12 scalefont setfont
+newpath
+50 50 moveto
+150 50 lineto
+150 75 lineto
+50 75 lineto
+closepath
+0.5 setgray
+fill
+(Hello) show
+----
+
+=== Output Token Stream
+
+[source,ruby]
+----
+[
+  Token(type: "name", value: "Helvetica"),
+  Token(type: "operator", value: "findfont"),
+  Token(type: "number", value: "12"),
+  Token(type: "operator", value: "scalefont"),
+  Token(type: "operator", value: "setfont"),
+  Token(type: "operator", value: "newpath"),
+  Token(type: "number", value: "50"),
+  Token(type: "number", value: "50"),
+  Token(type: "operator", value: "moveto"),
+  Token(type: "number", value: "150"),
+  Token(type: "number", value: "50"),
+  Token(type: "operator", value: "lineto"),
+  Token(type: "number", value: "150"),
+  Token(type: "number", value: "75"),
+  Token(type: "operator", value: "lineto"),
+  Token(type: "number", value: "50"),
+  Token(type: "number", value: "75"),
+  Token(type: "operator", value: "lineto"),
+  Token(type: "operator", value: "closepath"),
+  Token(type: "number", value: "0.5"),
+  Token(type: "operator", value: "setgray"),
+  Token(type: "operator", value: "fill"),
+  Token(type: "string", value: "Hello"),
+  Token(type: "operator", value: "show")
+]
+----
+
+**Note:** Comments and `%%BoundingBox` line are removed during preprocessing.
+
+== Error Handling
+
+=== Invalid Characters
+
+**Strategy:** Skip invalid characters, continue parsing
+
+[source,ruby]
+----
+# lib/postsvg/tokenizer.rb:27
+if token
+  tokens << token
+  index = new_index
+else
+  # Skip invalid character
+  index += 1
+end
+----
+
+**Behavior:** Silently ignores characters that don't match any token pattern.
+
+=== Unclosed Strings
+
+**String without closing `)`:**
+
+[source,postscript]
+----
+(This string is unclosed
+----
+
+**Behavior:** Tokenizer continues to end of input, returns partial string.
+
+**Result:** `Token(type: "string", value: "This string is unclosed\n")`
+
+=== Invalid Escape Sequences
+
+**Unrecognized escape:**
+
+[source,postscript]
+----
+(Invalid \z escape)
+----
+
+**Behavior:** Uses the literal character following backslash.
+
+**Result:** `"Invalid z escape"` (backslash consumed, 'z' literal)
+
+== Performance Characteristics
+
+=== Time Complexity
+
+**Single-Pass Algorithm:** O(n) where n = input length
+
+**Character Processing:**
+
+* Each character examined once
+* Constant-time token type checks
+* No backtracking or lookahead beyond current token
+
+**Regex Matching:**
+
+* Number regex: O(k) where k = digits in number
+* Identifier regex: O(m) where m = identifier length
+* Both are bounded and small relative to input
+
+**Overall:** O(n) linear time complexity
+
+=== Space Complexity
+
+**Token Array:** O(t) where t = number of tokens
+
+**Token Overhead:** Each token requires:
+
+* Type string (interned)
+* Value string
+* Struct overhead
+
+**Typical Ratio:** tokens ≈ n/5 (average 5 chars per token)
+
+**Temporary Storage:** O(1) for current token being built
+
+**Overall:** O(n) space complexity
+
+=== Optimization Opportunities
+
+**String Building:**
+
+[source,ruby]
+----
+result = +""  # Mutable string buffer
+result << char  # Efficient append
+----
+
+**Regex Pre-compilation:** Patterns could be compiled as constants (currently inline).
+
+**Interned Strings:** Token types could use symbols instead of strings.
+
+== Testing the Parser
+
+=== Unit Tests
+
+**Number Parsing:**
+
+[source,ruby]
+----
+describe "number tokenization" do
+  it "parses integers" do
+    tokens = Tokenizer.tokenize("42")
+    expect(tokens.length).to eq(1)
+    expect(tokens[0].type).to eq("number")
+    expect(tokens[0].value).to eq("42")
+  end
+
+  it "parses floats" do
+    tokens = Tokenizer.tokenize("3.14")
+    expect(tokens[0].value).to eq("3.14")
+  end
+
+  it "parses scientific notation" do
+    tokens = Tokenizer.tokenize("1.5e-3")
+    expect(tokens[0].value).to eq("1.5e-3")
+  end
+end
+----
+
+**String Parsing:**
+
+[source,ruby]
+----
+describe "string tokenization" do
+  it "parses simple strings" do
+    tokens = Tokenizer.tokenize("(Hello)")
+    expect(tokens[0].type).to eq("string")
+    expect(tokens[0].value).to eq("Hello")
+  end
+
+  it "handles nested parentheses" do
+    tokens = Tokenizer.tokenize("(nested (parens))")
+    expect(tokens[0].value).to eq("nested (parens)")
+  end
+
+  it "processes escape sequences" do
+    tokens = Tokenizer.tokenize("(line1\\nline2)")
+    expect(tokens[0].value).to eq("line1\nline2")
+  end
+end
+----
+
+**Operator Parsing:**
+
+[source,ruby]
+----
+describe "operator tokenization" do
+  it "parses operator names" do
+    tokens = Tokenizer.tokenize("moveto lineto stroke")
+    expect(tokens.map(&:value)).to eq(["moveto", "lineto", "stroke"])
+  end
+
+  it "distinguishes names from operators" do
+    tokens = Tokenizer.tokenize("/Helvetica Helvetica")
+    expect(tokens[0].type).to eq("name")
+    expect(tokens[0].value).to eq("Helvetica")
+    expect(tokens[1].type).to eq("operator")
+    expect(tokens[1].value).to eq("Helvetica")
+  end
+end
+----
+
+=== Integration Tests
+
+**Complete Program:**
+
+[source,ruby]
+----
+describe "full tokenization" do
+  it "tokenizes a complete PostScript program" do
+    ps = <<~PS
+      %%BoundingBox: 0 0 100 100
+      /Helvetica findfont 12 scalefont setfont
+      100 50 moveto
+      (Hello) show
+    PS
+
+    tokens = Tokenizer.tokenize(ps)
+
+    # Verify token sequence
+    expect(tokens[0]).to have_attributes(type: "name", value: "Helvetica")
+    expect(tokens[1]).to have_attributes(type: "operator", value: "findfont")
+    # ... etc
+  end
+end
+----
+
+== Next Steps
+
+* Review link:interpreter-stage.adoc[Interpreter Stage] to see how tokens are executed
+* Explore link:conversion-pipeline.adoc[Conversion Pipeline] for overall architecture
+* See link:../api-reference/tokenizer.adoc[Tokenizer API Reference] for usage details
+* Check link:../development.adoc[Development Guide] for contributing
+
+== Bibliography
+
+* link:conversion-pipeline.adoc[Conversion Pipeline Documentation]
+* link:interpreter-stage.adoc[Interpreter Stage Documentation]
+* link:../api-reference/tokenizer.adoc[Tokenizer API Reference]
+* PostScript Language Reference Manual, 3rd Edition (Adobe Systems)
+* Compilers: Principles, Techniques, and Tools (Dragon Book)
+* Lexical Analysis in Programming Language Implementation

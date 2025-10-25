@@ -1,0 +1,221 @@
+= API Reference
+:page-nav_order: 4
+
+== Purpose
+
+This section provides complete Ruby API documentation for all Postsvg classes and methods. Use this reference to integrate Postsvg into your Ruby applications programmatically.
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:getting-started.adoc[Getting Started Guide]
+* link:concepts.adoc[Core Concepts]
+* link:https://rubygems.org/gems/postsvg[RubyGems Package]
+
+== Concepts
+
+**Module Methods**:: Top-level convenience methods in the [`Postsvg`](../lib/postsvg.rb:10) module for quick conversions.
+
+**Converter Class**:: The main [`Converter`](../lib/postsvg/converter.rb:8) class for controlled conversion with options.
+
+**Interpreter**:: The [`Interpreter`](../lib/postsvg/interpreter.rb:9) class that executes PostScript commands.
+
+**Graphics State**:: The [`GraphicsState`](../lib/postsvg/graphics_state.rb:5) class managing drawing parameters.
+
+**Execution Context**:: The [`ExecutionContext`](../lib/postsvg/execution_context.rb:9) class coordinating the execution environment.
+
+== API Reference Topics
+
+link:api-reference/postsvg-module.adoc[**Postsvg Module**]::
+Top-level module methods: [`convert`](../lib/postsvg.rb:13), [`convert_file`](../lib/postsvg.rb:24), BoundingBox extraction.
+
+link:api-reference/converter.adoc[**Converter Class**]::
+The [`Converter`](../lib/postsvg/converter.rb:8) class for converting PostScript to SVG with options.
+
+link:api-reference/interpreter.adoc[**Interpreter Class**]::
+The [`Interpreter`](../lib/postsvg/interpreter.rb:9) class that parses and executes PostScript commands.
+
+link:api-reference/execution-context.adoc[**ExecutionContext Class**]::
+The [`ExecutionContext`](../lib/postsvg/execution_context.rb:9) class managing operand stack, dictionaries, and graphics state.
+
+link:api-reference/graphics-state.adoc[**GraphicsState Class**]::
+The [`GraphicsState`](../lib/postsvg/graphics_state.rb:5) class managing current path, colors, and transformations.
+
+link:api-reference/svg-generator.adoc[**SvgGenerator Class**]::
+The [`SvgGenerator`](../lib/postsvg/svg_generator.rb:7) class creating SVG output from graphics operations.
+
+link:api-reference/path-builder.adoc[**PathBuilder Class**]::
+The [`PathBuilder`](../lib/postsvg/path_builder.rb:7) class for constructing SVG path data.
+
+link:api-reference/matrix.adoc[**Matrix Class**]::
+The [`Matrix`](../lib/postsvg/matrix.rb:6) class for coordinate transformations.
+
+link:api-reference/colors.adoc[**Colors Module**]::
+The [`Colors`](../lib/postsvg/colors.rb:5) module for color space conversions.
+
+== Quick Reference
+
+=== Basic Conversion
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Convert PostScript content to SVG
+ps_content = File.read('input.ps')
+svg = Postsvg.convert(ps_content)
+
+# Convert file directly
+Postsvg.convert_file('input.eps', 'output.svg')
+
+# Get SVG content without saving
+svg_content = Postsvg.convert_file('input.ps')
+----
+
+=== Using Converter Class
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Create converter with options
+converter = Postsvg::Converter.new(
+  ps_content,
+  strict_mode: true
+)
+
+# Perform conversion
+svg_output = converter.convert
+----
+
+=== Color Conversions
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Convert RGB to hex
+Postsvg::Colors.color2rgb([0.5, 0.5, 0.5])  # => "#808080"
+
+# Convert grayscale to RGB hex
+Postsvg::Colors.gray2rgb(0.75)  # => "#bfbfbf"
+
+# Convert CMYK to RGB hex
+Postsvg::Colors.cmyk2rgb([0.0, 0.5, 1.0, 0.0])  # => "#ff8000"
+----
+
+=== Matrix Operations
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Create identity matrix
+matrix = Postsvg::Matrix.new
+
+# Apply transformations
+matrix.translate(10, 20)
+matrix.scale(2.0, 2.0)
+matrix.rotate(45)
+
+# Transform points
+result = matrix.apply_point(100, 100)
+# => { x: transformed_x, y: transformed_y }
+
+# Get SVG transform string
+matrix.to_transform_string
+# => "matrix(1.414,-1.414,1.414,1.414,10,20)"
+----
+
+== Error Handling
+
+Postsvg defines custom error classes in [`lib/postsvg/errors.rb`](../lib/postsvg/errors.rb:1):
+
+[source,ruby]
+----
+require 'postsvg'
+
+begin
+  svg = Postsvg.convert(malformed_ps)
+rescue Postsvg::Error => e
+  # Handle Postsvg-specific errors
+  puts "Conversion error: #{e.message}"
+rescue StandardError => e
+  # Handle other errors
+  puts "Unexpected error: #{e.message}"
+end
+----
+
+**Error Classes:**
+
+* `Postsvg::Error` - Base error class
+* `Postsvg::ParseError` - Parsing errors
+* `Postsvg::ConversionError` - Conversion errors
+* `Postsvg::ValidationError` - Validation errors
+
+== Strict Mode
+
+Enable strict mode to fail on unknown operators:
+
+[source,ruby]
+----
+# Strict mode with Converter
+converter = Postsvg::Converter.new(
+  ps_content,
+  strict_mode: true
+)
+
+# Strict mode fails on unknown operators
+begin
+  svg = converter.convert
+rescue Postsvg::Error => e
+  puts "Unknown operator: #{e.message}"
+end
+----
+
+Without strict mode, unknown operators are silently ignored.
+
+== Thread Safety
+
+Postsvg classes are not thread-safe. Create separate instances for concurrent operations:
+
+[source,ruby]
+----
+# Bad: sharing converter across threads
+converter = Postsvg::Converter.new(ps_content)
+threads = 10.times.map do
+  Thread.new { converter.convert }  # Not thread-safe!
+end
+
+# Good: one converter per thread
+threads = 10.times.map do |i|
+  Thread.new do
+    ps = File.read("file_#{i}.ps")
+    Postsvg::Converter.new(ps).convert
+  end
+end
+----
+
+== Performance Considerations
+
+**Memory Usage:**
+- Large PostScript files may consume significant memory during parsing
+- Consider processing files in batches for bulk conversions
+
+**Optimization:**
+- Reuse `Converter` instances when possible (but not across threads)
+- Use `convert_file` for direct file-to-file conversion
+- Enable strict mode only during development/testing
+
+== Next Steps
+
+* Review link:cli-reference.adoc[CLI Reference] for command-line usage
+* Explore link:advanced-topics.adoc[Advanced Topics] for complex scenarios
+* Check link:concepts.adoc[Core Concepts] for architecture understanding
+* See link:development.adoc[Development Guide] for extending Postsvg
+
+== Bibliography
+
+* link:api-reference/postsvg-module.adoc[Postsvg Module Documentation]
+* link:api-reference/converter.adoc[Converter Class Documentation]
+* link:https://ruby-doc.org/[Ruby Documentation]

@@ -1,0 +1,802 @@
+= CLI Options Reference
+:page-nav_order: 5
+:page-parent: CLI Reference
+
+== Purpose
+
+This comprehensive reference documents all command-line options available across Postsvg CLI commands, providing detailed explanations, usage examples, and best practices for each option.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../cli-reference.adoc[CLI Reference Overview]
+* link:convert-command.adoc[convert Command]
+* link:batch-command.adoc[batch Command]
+* link:check-command.adoc[check Command]
+* link:version-command.adoc[version Command]
+
+== Concepts
+
+**Global Options**:: Options that apply to all commands in the CLI.
+
+**Command-Specific Options**:: Options that only apply to specific commands.
+
+**Boolean Flags**:: Options that don't take values (presence means true).
+
+**Value Options**:: Options that require a value parameter.
+
+**Exit Codes**:: Numeric values (0 for success, 1 for failure) returned by commands.
+
+== Options by Command
+
+=== convert Command Options
+
+The [`convert`](convert-command.adoc) command supports the following options:
+
+==== --strict
+
+Enable strict validation mode that fails immediately on unknown or unsupported operators.
+
+**Syntax:**
+
+[source,sh]
+----
+postsvg convert --strict INPUT [OUTPUT] <1>
+----
+<1> Fail on any unknown PostScript operators
+
+**Where:**
+
+`INPUT`:: Input PostScript or EPS file path
+
+`OUTPUT`:: (Optional) Output SVG file path
+
+**Type:** Boolean flag (no value required)
+
+**Default:** `false` (lenient mode)
+
+**Availability:** `convert`, `batch` commands
+
+**Source:** [`lib/postsvg/cli.rb:22-23`](../../lib/postsvg/cli.rb:22)
+
+.Using strict mode for validation
+[example]
+====
+[source,sh]
+----
+# Lenient mode (default) - ignores unknown operators
+$ postsvg convert input.ps output.svg
+Successfully converted input.ps to output.svg
+
+# Strict mode - fails on unknown operators
+$ postsvg convert --strict input.ps output.svg
+Conversion error: Unknown operator: customop
+----
+
+Strict mode is useful for:
+
+* Development and testing
+* Ensuring complete operator support
+* Validating PostScript compatibility
+* Identifying unsupported features early
+====
+
+**Related Options:**
+* link:check-command.adoc#_level[--level] (for validation without conversion)
+
+=== batch Command Options
+
+The [`batch`](batch-command.adoc) command supports the following options:
+
+==== --strict (batch)
+
+Enable strict validation for batch conversions.
+
+**Syntax:**
+
+[source,sh]
+----
+postsvg batch --strict INPUT_DIR [OUTPUT_DIR] <1>
+----
+<1> Apply strict mode to all files in batch
+
+**Type:** Boolean flag
+
+**Default:** `false`
+
+**Availability:** `batch` command
+
+**Source:** [`lib/postsvg/cli.rb:66-67`](../../lib/postsvg/cli.rb:66)
+
+.Batch conversion with strict mode
+[example]
+====
+[source,sh]
+----
+$ postsvg batch --strict ps_files/ svg_files/
+Found 3 file(s) to convert
+  ✓ ps_files/diagram1.ps → svg_files/diagram1.svg
+  ✗ ps_files/diagram2.ps: Unknown operator: shfill
+  ✓ ps_files/diagram3.ps → svg_files/diagram3.svg
+----
+
+In batch mode, strict validation is applied to each file individually. Errors are reported but don't stop the batch process.
+====
+
+=== check Command Options
+
+The [`check`](check-command.adoc) command provides the most extensive set of options for validation control.
+
+==== -l, --level LEVEL
+
+Specify the validation level: `syntax`, `semantic`, or `full`.
+
+**Syntax:**
+
+[source,sh]
+----
+postsvg check --level=LEVEL FILE... <1>
+postsvg check -l LEVEL FILE... <2>
+----
+<1> Long form with equals
+<2> Short form with space
+
+**Where:**
+
+`LEVEL`:: Validation level
+* `syntax` - Fast structural validation only
+* `semantic` - Thorough logical validation (default)
+* `full` - Complete conversion attempt
+
+**Type:** String value
+
+**Default:** `semantic`
+
+**Availability:** `check` command only
+
+**Source:** [`lib/postsvg/cli.rb:134`](../../lib/postsvg/cli.rb:134)
+
+.Validation levels comparison
+[example]
+====
+[source,sh]
+----
+# Syntax level - fastest
+$ postsvg check --level=syntax file.ps
+✓ file.ps - Valid PostScript file
+  Validation time: 15ms
+
+# Semantic level - default, thorough
+$ postsvg check --level=semantic file.ps
+✓ file.ps - Valid PostScript file
+  Validation time: 87ms
+
+# Full level - strictest
+$ postsvg check --level=full file.ps
+✓ file.ps - Valid PostScript file
+  Validation time: 243ms
+  SVG generated successfully
+----
+
+**Performance characteristics:**
+
+* `syntax`: ~10-50ms per file
+* `semantic`: ~50-200ms per file
+* `full`: ~100-500ms per file
+====
+
+**Validation Level Details:**
+
+[cols="1,2,2"]
+|===
+| Level | Checks Performed | Use Case
+
+| `syntax`
+| Headers, delimiters, tokenization
+| Quick structural check
+
+| `semantic`
+| Stack balance, state tracking, operators
+| Regular validation (recommended)
+
+| `full`
+| Complete conversion with SVG generation
+| Production readiness
+|===
+
+==== -f, --format FORMAT
+
+Specify the output report format.
+
+**Syntax:**
+
+[source,sh]
+----
+postsvg check --format=FORMAT FILE... <1>
+postsvg check -f FORMAT FILE... <2>
+----
+<1> Long form with equals
+<2> Short form with space
+
+**Where:**
+
+`FORMAT`:: Output format
+* `text` - Human-readable colored output (default)
+* `yaml` - Structured YAML for processing
+* `json` - JSON for programmatic use
+
+**Type:** String value
+
+**Default:** `text`
+
+**Availability:** `check` command only
+
+**Source:** [`lib/postsvg/cli.rb:135`](../../lib/postsvg/cli.rb:135)
+
+.Output format examples
+[example]
+====
+**Text format (default):**
+[source,sh]
+----
+$ postsvg check file.ps
+✓ file.ps - Valid PostScript file
+  File type: EPS
+  No errors found
+----
+
+**YAML format:**
+[source,sh]
+----
+$ postsvg check --format=yaml file.ps
+---
+filename: file.ps
+valid: true
+file_type: EPS
+errors: []
+warnings: []
+----
+
+**JSON format:**
+[source,sh]
+----
+$ postsvg check --format=json file.ps
+{
+  "filename": "file.ps",
+  "valid": true,
+  "file_type": "EPS",
+  "errors": [],
+  "warnings": []
+}
+----
+====
+
+**Format Use Cases:**
+
+* `text` - Interactive use, terminal output
+* `yaml` - Configuration files, human-readable data
+* `json` - CI/CD integration, automated processing
+
+==== -v, --verbose
+
+Enable detailed output including warnings and informational messages.
+
+**Syntax:**
+
+[source,sh]
+----
+postsvg check --verbose FILE... <1>
+postsvg check -v FILE... <2>
+----
+<1> Long form
+<2> Short form
+
+**Type:** Boolean flag
+
+**Default:** `false`
+
+**Availability:** `check` command only
+
+**Source:** [`lib/postsvg/cli.rb:136`](../../lib/postsvg/cli.rb:136)
+
+.Verbose output example
+[example]
+====
+[source,sh]
+----
+# Normal output
+$ postsvg check file.ps
+✓ file.ps - Valid PostScript file
+
+# Verbose output
+$ postsvg check --verbose file.ps
+✓ file.ps - Valid PostScript file
+  File type: EPS
+  PostScript version: 3.0
+  BoundingBox: 0 0 612 792
+  Total operators: 127
+  Path commands: 45
+  Graphics state operations: 12
+  Info:
+    - Using default font
+  Warnings:
+    - Consider explicit line cap settings
+  No errors found
+----
+
+Verbose mode provides:
+
+* Detailed file information
+* Operator statistics
+* Informational messages
+* Warning messages
+* Performance metrics
+====
+
+==== -q, --quiet
+
+Suppress success messages, only output errors.
+
+**Syntax:**
+
+[source,sh]
+----
+postsvg check --quiet FILE... <1>
+postsvg check -q FILE... <2>
+----
+<1> Long form
+<2> Short form
+
+**Type:** Boolean flag
+
+**Default:** `false`
+
+**Availability:** `check` command only
+
+**Source:** [`lib/postsvg/cli.rb:137`](../../lib/postsvg/cli.rb:137)
+
+.Quiet mode example
+[example]
+====
+[source,sh]
+----
+# Normal mode
+$ postsvg check good1.ps good2.ps broken.ps
+✓ good1.ps - Valid PostScript file
+✓ good2.ps - Valid PostScript file
+✗ broken.ps - Syntax error: Unmatched delimiter
+
+# Quiet mode (only errors)
+$ postsvg check --quiet good1.ps good2.ps broken.ps
+✗ broken.ps - Syntax error: Unmatched delimiter
+----
+
+Quiet mode is useful for:
+
+* CI/CD pipelines (only failures matter)
+* Scripting (reduce noise)
+* Log files (focus on problems)
+* Large batch validation
+====
+
+**Interaction with --verbose:**
+
+`--quiet` and `--verbose` are mutually exclusive. If both are specified, `--verbose` takes precedence.
+
+==== --no-color
+
+Disable colored terminal output.
+
+**Syntax:**
+
+[source,sh]
+----
+postsvg check --no-color FILE... <1>
+----
+<1> Plain text output without ANSI colors
+
+**Type:** Boolean flag
+
+**Default:** `false` (colors enabled)
+
+**Availability:** `check` command only
+
+**Source:** [`lib/postsvg/cli.rb:138`](../../lib/postsvg/cli.rb:138)
+
+.No-color output
+[example]
+====
+[source,sh]
+----
+# With colors (default)
+$ postsvg check file.ps
+✓ file.ps - Valid PostScript file  # Green text
+
+# Without colors
+$ postsvg check --no-color file.ps
+✓ file.ps - Valid PostScript file  # Plain text
+----
+
+Use `--no-color` when:
+
+* Output is redirected to file
+* CI/CD systems don't support ANSI
+* Terminal doesn't support colors
+* Generating reports for parsing
+====
+
+**Environment Variables:**
+
+The `NO_COLOR` environment variable is also respected:
+
+[source,sh]
+----
+export NO_COLOR=1
+postsvg check file.ps  # Colors automatically disabled
+----
+
+==== --fail-fast
+
+Stop validation at first error instead of checking all files.
+
+**Syntax:**
+
+[source,sh]
+----
+postsvg check --fail-fast FILE... <1>
+----
+<1> Exit on first validation failure
+
+**Type:** Boolean flag
+
+**Default:** `false` (check all files)
+
+**Availability:** `check` command only
+
+**Source:** [`lib/postsvg/cli.rb:139`](../../lib/postsvg/cli.rb:139)
+
+.Fail-fast behavior
+[example]
+====
+[source,sh]
+----
+# Without fail-fast (checks all)
+$ postsvg check file1.ps file2.ps file3.ps file4.ps
+✓ file1.ps - Valid
+✗ file2.ps - Error: Stack underflow
+✓ file3.ps - Valid
+✗ file4.ps - Error: Missing delimiter
+
+# With fail-fast (stops at first error)
+$ postsvg check --fail-fast file1.ps file2.ps file3.ps file4.ps
+✓ file1.ps - Valid
+✗ file2.ps - Error: Stack underflow
+# Validation stopped, file3.ps and file4.ps not checked
+----
+
+Fail-fast is useful for:
+
+* Rapid feedback during development
+* Pre-commit hooks
+* Continuous integration checks
+* Quick problem identification
+====
+
+==== --eps-version VERSION
+
+Validate against specific EPS version requirements.
+
+**Syntax:**
+
+[source,sh]
+----
+postsvg check --eps-version=VERSION FILE... <1>
+----
+<1> Validate EPS version compliance
+
+**Where:**
+
+`VERSION`:: EPS version specification
+* `1.0` - EPS version 1.0
+* `2.0` - EPS version 2.0
+* `3.0` - EPS version 3.0
+
+**Type:** String value
+
+**Default:** Not set (any version accepted)
+
+**Availability:** `check` command only
+
+**Source:** [`lib/postsvg/cli.rb:140`](../../lib/postsvg/cli.rb:140)
+
+.EPS version validation
+[example]
+====
+[source,sh]
+----
+# Check for EPS 3.0 compliance
+$ postsvg check --eps-version=3.0 diagram.eps
+✓ diagram.eps - Valid EPS 3.0 file
+  EPS version: 3.0 EPSF
+  Compliant with specification
+
+# Version mismatch
+$ postsvg check --eps-version=3.0 old.eps
+✗ old.eps - EPS version mismatch
+  Expected: 3.0
+  Found: 1.0
+  Recommendation: Upgrade file or use --eps-version=1.0
+----
+
+EPS version checking validates:
+
+* Header format (`%!PS-Adobe-X.X EPSF-X.X`)
+* Required DSC comments
+* Version-specific operators
+* Feature compatibility
+====
+
+== Option Combinations
+
+=== Validation Workflows
+
+==== Quick Syntax Check
+
+[source,sh]
+----
+postsvg check --level=syntax --quiet *.ps <1>
+----
+<1> Fast, silent syntax check on all files
+
+==== Thorough Validation
+
+[source,sh]
+----
+postsvg check --level=full --verbose file.ps <1>
+----
+<1> Complete validation with detailed output
+
+==== CI/CD Validation
+
+[source,sh]
+----
+postsvg check --format=json --no-color --fail-fast *.ps <1>
+----
+<1> Machine-readable, fail-fast validation for automation
+
+==== Production Quality Gate
+
+[source,sh]
+----
+postsvg check --level=full --eps-version=3.0 --verbose *.eps <1>
+----
+<1> Strictest validation for production files
+
+=== Conversion Workflows
+
+==== Safe Conversion
+
+[source,sh]
+----
+postsvg check --level=full file.ps && \
+postsvg convert file.ps file.svg <1>
+----
+<1> Validate fully before converting
+
+==== Strict Batch Conversion
+
+[source,sh]
+----
+postsvg batch --strict input/ output/ <1>
+----
+<1> Convert directory with strict validation
+
+== Exit Codes
+
+All Postsvg commands return standard exit codes:
+
+[cols="1,3"]
+|===
+| Code | Meaning
+
+| `0`
+| Success - all operations completed without errors
+
+| `1`
+| Failure - error occurred (file not found, validation failed, conversion error)
+|===
+
+.Using exit codes in scripts
+[example]
+====
+[source,sh]
+----
+#!/bin/bash
+
+# Check exit code
+if postsvg convert input.ps output.svg; then
+  echo "Conversion successful"
+  exit 0
+else
+  echo "Conversion failed"
+  exit 1
+fi
+
+# Or use exit code directly
+postsvg check file.ps || echo "Validation failed"
+----
+====
+
+== Environment Variables
+
+=== NO_COLOR
+
+Disable colored output globally.
+
+[source,sh]
+----
+export NO_COLOR=1 <1>
+postsvg check file.ps  # Colors disabled automatically
+----
+<1> Set environment variable to disable colors
+
+**Equivalent to:** `--no-color` flag
+
+**Scope:** Affects all commands
+
+=== POSTSVG_STRICT
+
+Enable strict mode by default (proposed).
+
+[source,sh]
+----
+export POSTSVG_STRICT=1 <1>
+postsvg convert file.ps file.svg  # Strict mode enabled
+----
+<1> Enable strict mode globally
+
+**Note:** This is a proposed feature not yet implemented.
+
+== Common Usage Patterns
+
+=== Development Workflow
+
+[source,sh]
+----
+# Quick iteration during development
+postsvg check --level=syntax file.ps        # Fast check
+postsvg convert file.ps file.svg            # Convert
+postsvg check --level=full file.ps          # Final validation
+----
+
+=== CI/CD Integration
+
+[source,sh]
+----
+# Automated validation pipeline
+postsvg check \
+  --format=json \
+  --no-color \
+  --level=full \
+  --fail-fast \
+  $(find . -name "*.ps" -o -name "*.eps")
+----
+
+=== Production Deployment
+
+[source,sh]
+----
+# Strict validation before deployment
+postsvg check --level=full --eps-version=3.0 --verbose *.eps
+postsvg batch --strict production/ output/
+----
+
+=== Debugging
+
+[source,sh]
+----
+# Detailed debugging output
+postsvg check --verbose --level=full --no-color file.ps > debug.log 2>&1
+----
+
+== Best Practices
+
+=== Option Selection
+
+**For development:**
+- Use `--level=syntax` for quick checks
+- Enable `--verbose` to see warnings
+- Use `--strict` to catch unsupported operators early
+
+**For CI/CD:**
+- Use `--format=json` for machine parsing
+- Enable `--no-color` for clean logs
+- Use `--fail-fast` for quick feedback
+- Consider `--level=full` for critical files
+
+**For production:**
+- Use `--level=full` for thorough validation
+- Add `--eps-version` for compliance
+- Keep `--verbose` for audit trails
+- Use `--strict` in batch conversions
+
+=== Performance Optimization
+
+**For large file sets:**
+
+[source,sh]
+----
+# Use syntax level for initial screening
+postsvg check --level=syntax --quiet *.ps
+
+# Full validation only on modified files
+postsvg check --level=full $(git diff --name-only | grep '\.ps$')
+----
+
+**For quick feedback:**
+
+[source,sh]
+----
+# Fail-fast with syntax level
+postsvg check --level=syntax --fail-fast *.ps
+----
+
+=== Error Handling
+
+**Capture and log errors:**
+
+[source,sh]
+----
+# Log validation results
+postsvg check --format=yaml --verbose *.ps > validation.yaml 2>&1
+
+# Parse JSON results
+postsvg check --format=json *.ps | jq '.[] | select(.valid == false)'
+----
+
+== Troubleshooting
+
+=== Option Not Recognized
+
+**Problem:**
+[source]
+----
+Unknown switches '--unknown'
+----
+
+**Solution:**
+Check available options for the specific command using `postsvg help COMMAND`.
+
+=== Conflicting Options
+
+**Problem:**
+Both `--verbose` and `--quiet` specified.
+
+**Solution:**
+Use only one. `--verbose` takes precedence if both are present.
+
+=== Invalid Option Value
+
+**Problem:**
+[source]
+----
+Invalid validation level: 'invalid'
+----
+
+**Solution:**
+Use valid values: `syntax`, `semantic`, or `full`.
+
+== Next Steps
+
+* Review link:convert-command.adoc[convert Command] for conversion details
+* See link:batch-command.adoc[batch Command] for bulk processing
+* Check link:check-command.adoc[check Command] for validation workflows
+* Explore link:../getting-started/common-workflows.adoc[Common Workflows] for real-world examples
+
+== Bibliography
+
+* link:convert-command.adoc[convert Command Reference]
+* link:batch-command.adoc[batch Command Reference]
+* link:check-command.adoc[check Command Reference]
+* link:version-command.adoc[version Command Reference]
+* link:../getting-started/common-workflows.adoc[Common Workflows Guide]

@@ -1,0 +1,859 @@
+= PostScript Language Fundamentals
+:page-nav_order: 6
+:page-parent: Core Concepts
+
+== Purpose
+
+This document provides an introduction to the PostScript language fundamentals that are essential for understanding how Postsvg interprets PostScript code. While not a complete PostScript reference, it covers the core concepts needed to work effectively with Postsvg.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../concepts.adoc[Core Concepts Overview]
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:path-operations.adoc[Path Operations]
+* link:graphics-state.adoc[Graphics State Management]
+
+== Concepts
+
+**Stack-Based Execution**:: PostScript uses a Last-In-First-Out (LIFO) stack for storing and manipulating values.
+
+**Postfix Notation**:: Operators follow their operands (reverse Polish notation).
+
+**Operator**:: A command that performs an operation, typically consuming operands from the stack.
+
+**Operand**:: A value (number, string, array, etc.) that operators work with.
+
+**Dictionary**:: A key-value data structure for storing definitions and variables.
+
+== PostScript Language Overview
+
+=== What is PostScript?
+
+PostScript is a page description language developed by Adobe Systems in 1984. It's:
+
+* **Stack-based** - Uses a LIFO stack for operations
+* **Interpreted** - Executed line-by-line or token-by-token
+* **Turing-complete** - Can perform any computation
+* **Device-independent** - Same code produces same result on any device
+
+**Primary Uses:**
+
+* Printer control language
+* Vector graphics description
+* Font rendering
+* Page layout for professional printing
+
+=== PostScript vs. Other Languages
+
+.Language Comparison
+[source]
+----
+Infix (Most Languages):     PostScript (Postfix):
+  a = 2 + 3                   2 3 add
+  result = (a + b) * c        a b add c mul
+  if (x > 0) { ... }          x 0 gt { ... } if
+----
+
+**Advantages of Postfix:**
+
+* No operator precedence ambiguity
+* No parentheses needed for grouping
+* Natural for stack-based execution
+* Efficient for interpreters
+
+== Stack Model
+
+=== The Operand Stack
+
+The **operand stack** is the primary data structure in PostScript execution.
+
+.Stack Visualization
+[source]
+----
+Bottom of Stack
+     │
+     ▼
+  ┌─────┐
+  │  10 │ ← First value pushed
+  ├─────┤
+  │  20 │ ← Second value pushed
+  ├─────┤
+  │  30 │ ← Third value pushed (top)
+  └─────┘
+     ▲
+     │
+   Top of Stack
+----
+
+**Stack Operations:**
+
+* **Push** - Add value to top
+* **Pop** - Remove value from top
+* **Peek** - Look at top value without removing
+
+=== Stack Execution Example
+
+.Stack Evolution
+[example]
+====
+[source,postscript]
+----
+10           % Push 10
+20           % Push 20
+add          % Pop 20 and 10, push 30
+3            % Push 3
+mul          % Pop 3 and 30, push 90
+----
+
+Step-by-step stack evolution:
+
+[source]
+----
+Command    Stack State        Operation
+─────────────────────────────────────────
+10         [10]               Push 10
+20         [10, 20]           Push 20
+add        [30]               Pop 20,10 → Push 10+20
+3          [30, 3]            Push 3
+mul        [90]               Pop 3,30 → Push 30×3
+----
+
+Final result: 90 on stack
+====
+
+=== Stack Manipulation Operators
+
+**Basic Stack Operations:**
+
+`pop`:: Remove top item
+
+[source,postscript]
+----
+10 20 pop     % Stack: [10]
+----
+
+`dup`:: Duplicate top item
+
+[source,postscript]
+----
+10 dup        % Stack: [10, 10]
+----
+
+`exch`:: Exchange top two items
+
+[source,postscript]
+----
+10 20 exch    % Stack: [20, 10]
+----
+
+`roll`:: Rotate n items j times
+
+[source,postscript]
+----
+1 2 3 4 5     % Stack: [1,2,3,4,5]
+3 1 roll      % Rotate top 3 items once
+              % Stack: [1,2,5,3,4]
+----
+
+`copy`:: Duplicate top n items
+
+[source,postscript]
+----
+10 20 30      % Stack: [10,20,30]
+2 copy        % Stack: [10,20,30,20,30]
+----
+
+`index`:: Copy nth item to top
+
+[source,postscript]
+----
+10 20 30 40   % Stack: [10,20,30,40]
+2 index       % Stack: [10,20,30,40,20]
+----
+
+`clear`:: Clear entire stack
+
+[source,postscript]
+----
+1 2 3 4 5     % Stack: [1,2,3,4,5]
+clear         % Stack: []
+----
+
+`count`:: Count items on stack
+
+[source,postscript]
+----
+10 20 30      % Stack: [10,20,30]
+count         % Stack: [10,20,30,3]
+----
+
+== Data Types
+
+=== Numbers
+
+**Integers:**
+
+[source,postscript]
+----
+42          % Decimal integer
+-17         % Negative integer
+0           % Zero
+16#FF       % Hexadecimal (255 decimal)
+8#77        % Octal (63 decimal)
+----
+
+**Real Numbers (Floats):**
+
+[source,postscript]
+----
+3.14159     % Decimal float
+-0.5        % Negative float
+1.5e-3      % Scientific notation (0.0015)
+6.02e23     % Large number
+----
+
+=== Strings
+
+**Literal Strings:**
+
+[source,postscript]
+----
+(Hello World)               % Simple string
+(Line 1\nLine 2)           % With newline
+(It's a nice day)          % Single quotes OK
+(Backslash: \\)            % Escaped backslash
+(Parentheses: \( and \))   % Escaped parens
+----
+
+**Hexadecimal Strings:**
+
+[source,postscript]
+----
+<48656C6C6F>    % "Hello" in hex
+<>              % Empty string
+<48 65 6C>      % Same as <48656C>
+----
+
+=== Names
+
+Names start with `/` and are used for variables and dictionary keys:
+
+[source,postscript]
+----
+/MyVariable      % Name literal
+/x               % Short name
+/CamelCase       % Valid name
+/with-dashes     % Valid name
+/name_123        % Valid name
+----
+
+=== Boolean
+
+[source,postscript]
+----
+true            % Boolean true
+false           % Boolean false
+----
+
+=== Arrays
+
+**Array Syntax:**
+
+[source,postscript]
+----
+[1 2 3 4 5]                    % Array of numbers
+[/name1 /name2 /name3]         % Array of names
+[(Hello) (World)]              % Array of strings
+[1 (two) /three true]          % Mixed types
+[]                             % Empty array
+----
+
+**Nested Arrays:**
+
+[source,postscript]
+----
+[[1 2] [3 4] [5 6]]           % 2D array
+[1 [2 [3 [4 [5]]]]]           % Nested array
+----
+
+=== Procedures
+
+Procedures are executable arrays enclosed in braces:
+
+[source,postscript]
+----
+{ 2 mul }                      % Procedure: multiply by 2
+{ dup mul }                    % Procedure: square (x → x²)
+{ 100 100 moveto }             % Graphics procedure
+{ exch sub }                   % Subtract reversed (b a → a-b)
+----
+
+=== Dictionaries
+
+Dictionaries store key-value pairs:
+
+[source,postscript]
+----
+% Create dictionary with 10 entries
+10 dict begin
+  /x 100 def
+  /y 200 def
+  /name (MyName) def
+end
+
+% Inline dictionary (PostScript Level 2+)
+<< /x 100 /y 200 /name (MyName) >>
+----
+
+== Operators
+
+=== Arithmetic Operators
+
+**Basic Arithmetic:**
+
+[source,postscript]
+----
+3 4 add        % Addition: 3 + 4 = 7
+10 3 sub       % Subtraction: 10 - 3 = 7
+5 6 mul        % Multiplication: 5 × 6 = 30
+20 4 div       % Division: 20 ÷ 4 = 5
+17 5 mod       % Modulo: 17 % 5 = 2
+----
+
+**Advanced Math:**
+
+[source,postscript]
+----
+25 sqrt        % Square root: √25 = 5
+2 8 exp        % Exponentiation: 2⁸ = 256
+45 sin         % Sine (degrees)
+45 cos         % Cosine (degrees)
+1 atan         % Arctangent
+100 ln         % Natural logarithm
+10 log         % Base-10 logarithm
+-5 abs         % Absolute value: |-5| = 5
+----
+
+=== Comparison Operators
+
+[source,postscript]
+----
+3 4 eq         % Equal: false
+3 3 eq         % Equal: true
+5 3 ne         % Not equal: true
+5 3 gt         % Greater than: true
+3 5 lt         % Less than: true
+5 5 ge         % Greater or equal: true
+3 5 le         % Less or equal: true
+----
+
+=== Logical Operators
+
+[source,postscript]
+----
+true true and      % Logical AND: true
+true false or      % Logical OR: true
+true not           % Logical NOT: false
+true false xor     % Logical XOR: true
+----
+
+=== String Operators
+
+[source,postscript]
+----
+(Hello) length         % String length: 5
+(Hello) 0 get         % Get char at index 0: H
+(Hello) (World) eq    % String equality: false
+----
+
+=== Array Operators
+
+[source,postscript]
+----
+[1 2 3 4] length      % Array length: 4
+[1 2 3] 1 get         % Get element at index 1: 2
+[10 20 30] 0 10 put   % Set element 0 to 10
+----
+
+== Control Flow
+
+=== Conditional Execution
+
+**if:**
+
+[source,postscript]
+----
+condition { true-actions } if
+
+% Example:
+x 0 gt { (Positive) print } if
+----
+
+**ifelse:**
+
+[source,postscript]
+----
+condition { true-actions } { false-actions } ifelse
+
+% Example:
+x 0 gt
+  { (Positive) print }
+  { (Not positive) print }
+ifelse
+----
+
+.Conditional Example
+[example]
+====
+[source,postscript]
+----
+/x 10 def
+
+% Test if x is positive
+x 0 gt
+  {
+    % x > 0
+    x 0 moveto
+    x x lineto
+    stroke
+  }
+  {
+    % x ≤ 0
+    (x is not positive) print
+  }
+ifelse
+----
+====
+
+=== Loops
+
+**repeat:**
+
+[source,postscript]
+----
+n { actions } repeat
+
+% Example: Print 1 to 5
+1 1 5 { dup = 1 add } repeat pop
+----
+
+**for:**
+
+[source,postscript]
+----
+initial increment limit { actions } for
+
+% Example: Count 0 to 10 by 2
+0 2 10 { = } for
+% Output: 0 2 4 6 8 10
+----
+
+**loop:**
+
+[source,postscript]
+----
+{ actions exit-condition { exit } if } loop
+
+% Example: Infinite loop with break
+0
+{
+  dup =           % Print current value
+  1 add           % Increment
+  dup 5 gt        % Check if > 5
+    { exit }      % Exit if true
+  if
+} loop
+----
+
+**forall:**
+
+[source,postscript]
+----
+array { actions } forall
+
+% Example: Print array elements
+[10 20 30 40] { = } forall
+% Output: 10 20 30 40
+----
+
+.Loop Examples
+[example]
+====
+[source,postscript]
+----
+% Draw 10 circles
+newpath
+10 {
+  100 100 50 0 360 arc
+  stroke
+  0 20 translate  % Move down for next circle
+} repeat
+
+% Draw grid
+0 10 100 {        % x from 0 to 100 by 10
+  0 10 100 {      % y from 0 to 100 by 10
+    2 index       % Get x
+    1 index       % Get y
+    moveto
+    2 0 rlineto   % Draw small mark
+    stroke
+  } for
+  pop             % Remove y
+} for
+pop               % Remove x
+----
+====
+
+== Procedures and Functions
+
+=== Defining Procedures
+
+[source,postscript]
+----
+/name { procedure-body } def
+
+% Examples:
+/square { dup mul } def
+/double { 2 mul } def
+/greet { (Hello) print } def
+----
+
+=== Using Procedures
+
+[source,postscript]
+----
+% Define
+/square { dup mul } def
+
+% Use
+5 square         % Result: 25
+10 square        % Result: 100
+----
+
+=== Procedures with Parameters
+
+.Procedure Parameter Pattern
+[example]
+====
+[source,postscript]
+----
+% Define procedure that draws a rectangle
+/rectangle {  % x y width height
+  /h exch def
+  /w exch def
+  /y exch def
+  /x exch def
+
+  newpath
+  x y moveto
+  w 0 rlineto
+  0 h rlineto
+  w neg 0 rlineto
+  closepath
+} def
+
+% Use
+100 100 200 150 rectangle
+fill
+----
+
+The pattern:
+
+1. Pop parameters from stack
+2. Store in local variables (`def`)
+3. Use variables in procedure body
+====
+
+=== Recursive Procedures
+
+[source,postscript]
+----
+% Factorial function
+/factorial {
+  dup 1 le
+    { pop 1 }           % Base case: n ≤ 1 → 1
+    { dup 1 sub         % Recursive case:
+      factorial         %   factorial(n-1)
+      mul }             %   × n
+  ifelse
+} def
+
+% Use
+5 factorial             % Result: 120
+----
+
+== Dictionaries and Scope
+
+=== Dictionary Operations
+
+**Create Dictionary:**
+
+[source,postscript]
+----
+10 dict                 % Create dict with 10 slots
+----
+
+**Define Entry:**
+
+[source,postscript]
+----
+/mydict 10 dict def
+mydict begin
+  /x 100 def
+  /y 200 def
+end
+----
+
+**Access Entry:**
+
+[source,postscript]
+----
+/x load                 % Load x's value
+mydict /x get          % Get x from mydict
+----
+
+=== Dictionary Stack
+
+PostScript maintains a **dictionary stack** for variable scope:
+
+.Dictionary Stack
+[source]
+----
+Top    ┌──────────────┐
+       │ Current Dict │ ← Definitions here
+       ├──────────────┤
+       │  User Dict   │ ← User definitions
+       ├──────────────┤
+Bottom │ System Dict  │ ← Built-in operators
+       └──────────────┘
+----
+
+**Dictionary Scope:**
+
+[source,postscript]
+----
+/x 10 def               % Define in userdict
+
+100 dict begin          % Push new dict
+  /x 20 def            % Shadows outer x
+  x =                   % Prints: 20
+end                     % Pop dict
+
+x =                     % Prints: 10
+----
+
+=== Built-in Dictionaries
+
+`systemdict`:: Built-in operators and constants
+
+`userdict`:: User-defined variables (default)
+
+`globaldict`:: Level 2+ global definitions
+
+== Graphics Operators
+
+=== Path Construction
+
+[source,postscript]
+----
+newpath               % Clear current path
+x y moveto            % Start subpath at (x,y)
+x y lineto            % Line to (x,y)
+x y rmoveto           % Relative move
+dx dy rlineto         % Relative line
+x1 y1 x2 y2 x3 y3 curveto  % Cubic curve
+closepath             % Close current subpath
+----
+
+=== Path Painting
+
+[source,postscript]
+----
+stroke                % Paint path outline
+fill                  % Fill path interior
+eofill                % Even-odd fill
+clip                  % Set clipping path
+----
+
+=== Graphics State
+
+[source,postscript]
+----
+gsave                 % Save graphics state
+grestore              % Restore graphics state
+----
+
+=== Color
+
+[source,postscript]
+----
+gray setgray          % Grayscale (0-1)
+r g b setrgbcolor     % RGB (0-1 each)
+c m y k setcmykcolor  % CMYK (0-1 each)
+----
+
+=== Line Attributes
+
+[source,postscript]
+----
+width setlinewidth    % Line thickness
+cap setlinecap        % 0=butt, 1=round, 2=square
+join setlinejoin      % 0=miter, 1=round, 2=bevel
+[array] offset setdash % Dash pattern
+----
+
+=== Transformations
+
+[source,postscript]
+----
+tx ty translate       % Translate origin
+sx sy scale           % Scale axes
+angle rotate          % Rotate (degrees)
+----
+
+== Comments
+
+[source,postscript]
+----
+% This is a comment to end of line
+
+100 100 moveto  % Move to (100,100)
+
+% Comments can be on their own line
+% or at the end of code lines
+----
+
+== Program Structure
+
+=== PostScript File Structure
+
+[source,postscript]
+----
+%!PS-Adobe-3.0
+%%BoundingBox: 0 0 612 792
+%%Title: My Document
+%%Creator: Me
+%%Pages: 1
+%%EndComments
+
+%%BeginProlog
+% Procedure definitions
+/square { dup mul } def
+%%EndProlog
+
+%%Page: 1 1
+% Page content
+100 100 moveto
+200 200 lineto
+stroke
+showpage
+%%EOF
+----
+
+**Document Structure Comments:**
+
+* `%!PS-Adobe-3.0` - File identifier
+* `%%BoundingBox:` - Page dimensions
+* `%%BeginProlog` / `%%EndProlog` - Definitions section
+* `%%Page:` - Page marker
+* `%%EOF` - End of file
+
+=== showpage
+
+The `showpage` operator:
+
+* Prints the current page
+* Resets graphics state
+* Advances to next page
+
+[source,postscript]
+----
+% Draw on page
+newpath
+100 100 moveto
+200 200 lineto
+stroke
+
+showpage    % Print page and reset
+----
+
+== Common Patterns
+
+=== Drawing a Rectangle
+
+[source,postscript]
+----
+newpath
+x y moveto
+width 0 rlineto
+0 height rlineto
+width neg 0 rlineto
+closepath
+----
+
+=== Drawing a Circle
+
+[source,postscript]
+----
+cx cy radius 0 360 arc
+----
+
+=== Rounded Rectangle
+
+[source,postscript]
+----
+/roundrect {
+  /r exch def /h exch def /w exch def /y exch def /x exch def
+  newpath
+  x r add y moveto
+  x w add y x w add y r add r arcto 4 {pop} repeat
+  x w add y h add x w add r sub y h add r arcto 4 {pop} repeat
+  x y h add x r add y h add r arcto 4 {pop} repeat
+  x y x y r add r arcto 4 {pop} repeat
+  closepath
+} def
+----
+
+== PostScript Limitations in Postsvg
+
+Postsvg supports a subset of PostScript focused on vector graphics:
+
+**Supported:**
+
+* Basic arithmetic and logic
+* Path construction and painting
+* Graphics state operations
+* Color operations
+* Transformations
+* Basic control flow
+* Dictionary operations
+
+**Not Supported:**
+
+* File I/O operations
+* Font rendering (partial)
+* Image operators
+* Advanced Level 3 features
+* Binary data
+* Some device-specific operators
+
+See the link:../cli-reference/check-command.adoc[Check Command] for validating PostScript compatibility.
+
+== Next Steps
+
+* Review link:conversion-pipeline.adoc[Conversion Pipeline] to see how PostScript is processed
+* Explore link:path-operations.adoc[Path Operations] for graphics details
+* See link:graphics-state.adoc[Graphics State] for state management
+* Check link:../api-reference.adoc[API Reference] for implementation
+* Read link:../architecture.adoc[Architecture] for system design
+
+== Bibliography
+
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:path-operations.adoc[Path Operations]
+* link:graphics-state.adoc[Graphics State Management]
+* link:../architecture/interpreter-stage.adoc[Interpreter Architecture]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual]
+* link:https://www-cdf.fnal.gov/offline/PostScript/BLUEBOOK.PDF[PostScript Language Tutorial and Cookbook]
+* link:https://en.wikipedia.org/wiki/PostScript[PostScript Wikipedia Article]

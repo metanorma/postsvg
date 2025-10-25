@@ -1,0 +1,677 @@
+= check Command
+:page-nav_order: 3
+:page-parent: CLI Reference
+
+== Purpose
+
+The `check` command validates PostScript and EPS files for syntax errors, semantic issues, and conversion compatibility. It's essential for quality assurance and CI/CD pipelines.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../cli-reference.adoc[CLI Reference Overview]
+* link:convert-command.adoc[convert Command]
+* link:batch-command.adoc[batch Command]
+* link:../validation.adoc[Validation System]
+
+== Concepts
+
+**Validation**:: The process of checking PostScript files for errors without performing actual conversion.
+
+**Validation Levels**:: Different degrees of checking: syntax (fast), semantic (thorough), full (complete).
+
+**Output Formats**:: Different report formats: text (human), yaml (structured), json (programmatic).
+
+**Fail-Fast**:: Stopping validation at the first error instead of checking all files.
+
+== Command Syntax
+
+[source,sh]
+----
+postsvg check [OPTIONS] FILE... <1>
+----
+<1> Validate one or more PostScript or EPS files
+
+**Where:**
+
+`FILE...`:: One or more PostScript (`.ps`) or EPS (`.eps`) files to validate
+
+**Options:**
+
+`-l, --level LEVEL`:: Validation level: `syntax`, `semantic`, `full` (default: `semantic`)
+
+`-f, --format FORMAT`:: Output format: `text`, `yaml`, `json` (default: `text`)
+
+`-v, --verbose`:: Print detailed information including warnings
+
+`-q, --quiet`:: Only output errors (suppress success messages)
+
+`--no-color`:: Disable colored output
+
+`--fail-fast`:: Stop at first error instead of checking all files
+
+`--eps-version VERSION`:: Validate against specific EPS version (`1.0`, `2.0`, `3.0`)
+
+**Exit Codes:**
+* `0` - All files valid
+* `1` - One or more files have errors
+
+**Source:**
+[`lib/postsvg/cli.rb:109-143`](../../lib/postsvg/cli.rb:109)
+
+== Validation Levels
+
+=== syntax
+
+Fast structural validation checking only basic file structure.
+
+[source,sh]
+----
+postsvg check --level=syntax FILE <1>
+----
+<1> Syntax-only validation (fastest)
+
+**Checks:**
+* PostScript header present (`%!PS` or `%!<`)
+* Delimiter matching (brackets, braces, parentheses)
+* Basic tokenization validity
+* Comment syntax
+
+**Skips:**
+* Stack simulation
+* Graphics state tracking
+* Full conversion attempt
+
+**Speed:** ~10-50ms per file
+
+.Syntax validation example
+[example]
+====
+[source,sh]
+----
+$ postsvg check --level=syntax document.ps
+✓ document.ps - Valid PostScript file
+  File type: PostScript
+  Validation level: syntax
+  No errors found
+----
+
+Use for quick structural checks in development.
+====
+
+=== semantic (default)
+
+Thorough validation including stack and state checking.
+
+[source,sh]
+----
+postsvg check --level=semantic FILE <1>
+postsvg check FILE <2>
+----
+<1> Explicit semantic validation
+<2> Default validation level
+
+**Checks:**
+* All syntax checks
+* Stack balance verification
+* Graphics state tracking
+* Dictionary operations
+* Operator argument validation
+
+**Skips:**
+* Full SVG generation
+
+**Speed:** ~50-200ms per file
+
+.Semantic validation example
+[example]
+====
+[source,sh]
+----
+$ postsvg check document.ps
+✓ document.ps - Valid PostScript file
+  File type: EPS
+  Validation level: semantic
+  BoundingBox: 0 0 612 792
+  No errors found
+----
+
+This is the recommended level for regular validation.
+====
+
+=== full
+
+Complete validation with full conversion attempt.
+
+[source,sh]
+----
+postsvg check --level=full FILE <1>
+----
+<1> Full validation (strictest, slowest)
+
+**Checks:**
+* All syntax checks
+* All semantic checks
+* Complete conversion to SVG
+* SVG generation validity
+* Output verification
+
+**Speed:** ~100-500ms per file (depends on complexity)
+
+.Full validation example
+[example]
+====
+[source,sh]
+----
+$ postsvg check --level=full complex.ps
+✓ complex.ps - Valid PostScript file
+  File type: PostScript
+  Validation level: full
+  BoundingBox: 0 0 800 600
+  Paths generated: 15
+  No errors found
+----
+
+Use for production readiness checks and thorough quality assurance.
+====
+
+== Output Formats
+
+=== text (default)
+
+Human-readable colored console output.
+
+[source,sh]
+----
+postsvg check --format=text FILE <1>
+postsvg check FILE <2>
+----
+<1> Explicit text format
+<2> Default output format
+
+**Features:**
+* ✓/✗ symbols for status
+* Color-coded messages (green=success, red=error, yellow=warning)
+* Human-readable formatting
+* Detailed error descriptions
+
+.Text output example
+[example]
+====
+[source,sh]
+----
+$ postsvg check file1.ps file2.ps broken.ps
+✓ file1.ps - Valid PostScript file
+  File type: EPS
+  No errors found
+
+✓ file2.ps - Valid PostScript file
+  File type: PostScript
+  No errors found
+
+✗ broken.ps - Semantic error
+  File type: PostScript
+  Errors:
+    - Stack underflow at operator 'moveto' (line ~15)
+    - Unmatched delimiter '}' (line ~23)
+----
+====
+
+=== yaml
+
+Structured YAML output for programmatic processing.
+
+[source,sh]
+----
+postsvg check --format=yaml FILE <1>
+----
+<1> YAML structured output
+
+.YAML output example
+[example]
+====
+[source,sh]
+----
+$ postsvg check --format=yaml document.ps
+---
+filename: document.ps
+valid: true
+file_type: EPS
+validation_level: semantic
+bounding_box:
+  llx: 0
+  lly: 0
+  urx: 612
+  ury: 792
+errors: []
+warnings: []
+info:
+  - BoundingBox present
+  - 5 paths found
+----
+====
+
+=== json
+
+JSON output ideal for CI/CD integration.
+
+[source,sh]
+----
+postsvg check --format=json FILE <1>
+----
+<1> JSON structured output
+
+.JSON output example
+[example]
+====
+[source,sh]
+----
+$ postsvg check --format=json --no-color document.ps
+{
+  "filename": "document.ps",
+  "valid": true,
+  "file_type": "EPS",
+  "validation_level": "semantic",
+  "bounding_box": {
+    "llx": 0,
+    "lly": 0,
+    "urx": 612,
+    "ury": 792
+  },
+  "errors": [],
+  "warnings": [],
+  "info": ["BoundingBox present", "5 paths found"]
+}
+----
+
+Perfect for parsing in scripts or CI/CD pipelines.
+====
+
+## Validation Options
+
+=== --verbose
+
+Show warnings and info messages in addition to errors.
+
+[source,sh]
+----
+postsvg check --verbose FILE <1>
+----
+<1> Include warnings and informational messages
+
+.Verbose output
+[example]
+====
+[source,sh]
+----
+$ postsvg check --verbose document.ps
+✓ document.ps - Valid PostScript file
+  File type: EPS
+  BoundingBox: 0 0 612 792
+  Info:
+    - PostScript version: 3.0
+    - Total operators: 127
+    - Path commands: 45
+    - Graphics state operations: 12
+  Warnings:
+    - Consider using explicit line cap settings
+  No errors found
+----
+====
+
+=== --quiet
+
+Suppress output for valid files, only show errors.
+
+[source,sh]
+----
+postsvg check --quiet FILES... <1>
+----
+<1> Silent mode - only errors displayed
+
+.Quiet mode example
+[example]
+====
+[source,sh]
+----
+$ postsvg check --quiet good1.ps good2.ps broken.ps
+✗ broken.ps - Syntax error: Unmatched delimiter
+----
+
+Good files produce no output. Only errors are shown.
+====
+
+=== --no-color
+
+Disable colored output (useful for CI/CD logs).
+
+[source,sh]
+----
+postsvg check --no-color FILE <1>
+----
+<1> Plain text without ANSI color codes
+
+.No-color output
+[example]
+====
+[source,sh]
+----
+$ postsvg check --no-color document.ps
+✓ document.ps - Valid PostScript file
+  File type: PostScript
+  No errors found
+----
+
+Same content as colored output, but without color codes. Essential for log files and CI/CD systems.
+====
+
+=== --fail-fast
+
+Stop validation at the first error encountered.
+
+[source,sh]
+----
+postsvg check --fail-fast FILES... <1>
+----
+<1> Exit immediately on first error
+
+.Fail-fast example
+[example]
+====
+[source,sh]
+----
+# Without fail-fast (checks all files)
+$ postsvg check file1.ps file2.ps file3.ps
+✓ file1.ps - Valid
+✗ file2.ps - Error
+✓ file3.ps - Valid
+
+# With fail-fast (stops at first error)
+$ postsvg check --fail-fast file1.ps file2.ps file3.ps
+✓ file1.ps - Valid
+✗ file2.ps - Error
+# file3.ps not checked
+----
+
+Useful for rapid feedback in development.
+====
+
+=== --eps-version
+
+Validate EPS version compliance.
+
+[source,sh]
+----
+postsvg check --eps-version=VERSION FILE <1>
+----
+<1> Validate against specific EPS version
+
+**Supported Versions:**
+* `1.0` - EPS version 1.0
+* `2.0` - EPS version 2.0
+* `3.0` - EPS version 3.0
+
+.EPS version validation
+[example]
+====
+[source,sh]
+----
+$ postsvg check --eps-version=3.0 diagram.eps
+✓ diagram.eps - Valid EPS 3.0 file
+  EPS version: 3.0
+  Compliant with specification
+  No errors found
+
+$ postsvg check --eps-version=3.0 old.eps
+✗ old.eps - EPS version mismatch
+  Expected: 3.0
+  Found: 1.0
+  Consider upgrading or use correct version flag
+----
+====
+
+## Multiple File Validation
+
+=== Validate All Files in Directory
+
+[source,sh]
+----
+postsvg check *.ps *.eps <1>
+postsvg check documents/*.ps <2>
+----
+<1> Check all PS and EPS files in current directory
+<2> Check all PS files in documents subdirectory
+
+.Multiple file validation
+[example]
+====
+[source,sh]
+----
+$ postsvg check *.ps
+✓ diagram1.ps - Valid PostScript file
+✓ diagram2.ps - Valid PostScript file
+✗ broken.ps - Syntax error: Unmatched delimiter
+✓ figure.ps - Valid PostScript file
+
+# Exit code: 1 (because one file failed)
+----
+====
+
+### Check with Different Levels
+
+[source,sh]
+----
+# Quick syntax check on all files
+postsvg check --level=syntax *.ps
+
+# Thorough check before deployment
+postsvg check --level=full --verbose production/*.ps
+----
+
+## CI/CD Integration
+
+=== GitHub Actions
+
+[source,yaml]
+----
+name: Validate PostScript
+
+on: [push, pull_request]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install Postsvg
+        run: gem install postsvg
+
+      - name: Validate PS files
+        run: |
+          postsvg check --format=json --no-color \
+            --level=full --fail-fast \
+            $(find . -name "*.ps" -o -name "*.eps")
+----
+
+=== GitLab CI
+
+[source,yaml]
+----
+validate-postscript:
+  image: ruby:3.2
+  stage: test
+  script:
+    - gem install postsvg
+    - |
+      find . -name "*.ps" -o -name "*.eps" | \
+      xargs postsvg check --format=json --level=semantic
+  artifacts:
+    when: on_failure
+    reports:
+      junit: validation-report.json
+----
+
+=== Pre-commit Hook
+
+[source,sh]
+----
+#!/bin/bash
+# .git/hooks/pre-commit
+
+# Find staged PS/EPS files
+FILES=$(git diff --cached --name-only --diff-filter=ACM | \
+        grep -E '\.(ps|eps)$')
+
+if [ -n "$FILES" ]; then
+  echo "Validating PostScript files..."
+
+  for file in $FILES; do
+    if ! postsvg check --quiet "$file"; then
+      echo "Validation failed for $file"
+      echo "Run: postsvg check $file"
+      exit 1
+    fi
+  done
+
+  echo "✓ All PostScript files valid"
+fi
+----
+
+## Usage Patterns
+
+=== Pattern 1: Pre-Conversion Validation
+
+[source,sh]
+----
+#!/bin/bash
+# validate-before-convert.sh
+
+for file in *.ps; do
+  if postsvg check --level=full --quiet "$file"; then
+    postsvg convert "$file" "${file%.ps}.svg"
+    echo "✓ Converted: $file"
+  else
+    echo "✗ Skipped (invalid): $file"
+  fi
+done
+----
+
+=== Pattern 2: Quality Gate
+
+[source,sh]
+----
+#!/bin/bash
+# quality-gate.sh
+
+ERRORS=0
+
+for file in production/*.ps; do
+  if ! postsvg check --level=full "$file"; then
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+
+if [ $ERRORS -gt 0 ]; then
+  echo "Quality gate failed: $ERRORS file(s) with errors"
+  exit 1
+else
+  echo "Quality gate passed: All files valid"
+  exit 0
+fi
+----
+
+=== Pattern 3: Detailed Reporting
+
+[source,sh]
+----
+#!/bin/bash
+# detailed-validation.sh
+
+REPORT="validation_report_$(date +%Y%m%d).json"
+
+postsvg check --format=json --verbose \
+  --level=full \
+  *.ps *.eps > "$REPORT"
+
+echo "Validation report saved to: $REPORT"
+
+# Parse results
+if command -v jq &> /dev/null; then
+  VALID=$(jq '[.[] | select(.valid == true)] | length' "$REPORT")
+  INVALID=$(jq '[.[] | select(.valid == false)] | length' "$REPORT")
+
+  echo "Valid files: $VALID"
+  echo "Invalid files: $INVALID"
+fi
+----
+
+== Error Messages
+
+=== Syntax Errors
+
+[source]
+----
+✗ document.ps - Syntax error
+  File type: PostScript
+  Errors:
+    - Unmatched delimiter '}' (line ~45)
+    - Invalid token near line 67
+----
+
+**Common causes:**
+* Missing closing delimiter
+* Malformed strings
+* Invalid number format
+
+=== Semantic Errors
+
+[source]
+----
+✗ document.ps - Semantic error
+  File type: PostScript
+  Errors:
+    - Stack underflow at operator 'moveto'
+    - Dictionary not found: 'customfont'
+----
+
+**Common causes:**
+* Insufficient operands
+* Undefined variables
+* Invalid operator sequences
+
+=== Conversion Errors
+
+[source]
+----
+✗ document.ps - Conversion error
+  File type: PostScript
+  Validation level: full
+  Errors:
+    - Unknown operator: 'unsupportedop'
+    - BoundingBox missing
+----
+
+**Common causes:**
+* Unsupported operators
+* Missing required metadata
+* Invalid PostScript constructs
+
+## Next Steps
+
+* Learn link:convert-command.adoc[convert command] for file conversion
+* Review link:batch-command.adoc[batch command] for bulk processing
+* See link:../validation.adoc[Validation System] for architecture details
+* Check link:../getting-started/common-workflows.adoc[Common Workflows] for integration examples
+
+== Bibliography
+
+* link:convert-command.adoc[convert Command Documentation]
+* link:batch-command.adoc[batch Command Documentation]
+* link:../validation.adoc[Validation System Overview]
+* link:../getting-started/common-workflows.adoc[Common Workflows]

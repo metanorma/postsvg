@@ -1,0 +1,15 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+# Jekyll and dependencies
+gem "jekyll", "~> 4.3"
+
+# Theme
+gem "just-the-docs"
+
+# Plugins
+group :jekyll_plugins do
+  gem "jekyll-asciidoc"
+  gem "jekyll-seo-tag"
+end

@@ -1,0 +1,29 @@
+# Jekyll build artifacts
+_site/
+.sass-cache/
+.jekyll-cache/
+.jekyll-metadata
+
+# Bundler
+.bundle/
+vendor/
+
+# Ruby
+*.gem
+*.rbc
+.config
+coverage/
+InstalledFiles
+lib/bundler/man/
+
+# Temporary files
+*~
+*.swp
+*.swo
+.DS_Store
+
+# Log files
+*.log
+
+# Lock files (optional - comment out if you want to commit)
+Gemfile.lock

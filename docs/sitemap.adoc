@@ -1,0 +1,337 @@
+= Documentation Site Map
+:page-nav_order: 13
+
+== Purpose
+
+This site map provides a complete overview of all documentation, showing the hierarchical structure and helping you find the information you need quickly.
+
+== Documentation Structure
+
+=== Main Entry Points
+
+* link:index.adoc[**Documentation Home**] - Start here for overview and navigation
+* link:quick-reference.adoc[**Quick Reference**] - Fast access to common commands
+* link:getting-started.adoc[**Getting Started**] - Begin learning Postsvg
+* link:troubleshooting.adoc[**Troubleshooting**] - Solve problems quickly
+* link:faq.adoc[**FAQ**] - Common questions answered
+
+=== Core Documentation
+
+==== Getting Started (Complete Path)
+1. link:getting-started.adoc[Getting Started Overview]
+   * link:getting-started/installation.adoc[Installation Guide] - Install on all platforms
+   * link:getting-started/basic-usage.adoc[Basic Usage] - CLI and API fundamentals
+   * link:getting-started/first-conversion.adoc[First Conversion Tutorial] - Step-by-step walkthrough
+   * link:getting-started/common-workflows.adoc[Common Workflows] - Real-world integration patterns
+
+==== Core Concepts
+2. link:concepts.adoc[Core Concepts Overview]
+   * PostScript Language
+   * Conversion Pipeline
+   * Graphics State Management
+   * Coordinate Systems
+   * Path Operations
+   * SVG Generation
+
+==== API Reference
+3. link:api-reference.adoc[API Reference Overview]
+   * link:api-reference/postsvg-module.adoc[Postsvg Module] - Main module methods
+   * Converter Class
+   * Interpreter Class
+   * Execution Context
+   * Graphics State
+   * SVG Generator
+   * Path Builder
+   * Matrix Class
+   * Colors Module
+
+==== CLI Reference
+4. link:cli-reference.adoc[CLI Reference Overview]
+   * Convert Command
+   * Batch Command
+   * Check Command
+   * Version Command
+   * CLI Options Reference
+
+==== PostScript Language
+5. link:POSTSCRIPT.adoc[PostScript Language Reference]
+   * link:postscript/index.adoc[PostScript Quick Reference]
+   * link:postscript/fundamentals.adoc[Language Fundamentals]
+   * link:postscript/graphics-model.adoc[Graphics Model]
+   * link:postscript/svg-mapping.adoc[PostScript to SVG Mapping]
+   * link:postscript/implementation-notes.adoc[Implementation Notes]
+   * link:postscript/operators/index.adoc[Operators Reference]
+     ** link:postscript/operators/path-construction.adoc[Path Construction]
+     ** link:postscript/operators/painting.adoc[Painting]
+     ** link:postscript/operators/graphics-state.adoc[Graphics State]
+     ** link:postscript/operators/transformations.adoc[Transformations]
+     ** link:postscript/operators/stack-manipulation.adoc[Stack Manipulation]
+     ** link:postscript/operators/arithmetic.adoc[Arithmetic]
+     ** link:postscript/operators/control-flow.adoc[Control Flow]
+     ** link:postscript/operators/dictionary.adoc[Dictionary]
+
+==== Validation System
+6. link:validation.adoc[Validation System Overview]
+   * Validation Levels
+   * Validation Service
+   * Validators
+   * Reporters
+   * Integration
+
+==== SVG Optimization
+7. link:optimization.adoc[SVG Optimization Overview]
+   * ClipPath Deduplication
+   * Path Simplification
+   * Performance Tips
+
+==== Architecture
+8. link:architecture.adoc[Architecture Overview]
+   * Conversion Pipeline
+   * Parser Stage
+   * Interpreter Stage
+   * Generator Stage
+   * Command Registry
+   * Graphics State Model
+   * Design Decisions
+
+==== Advanced Topics
+9. link:advanced-topics.adoc[Advanced Topics Overview]
+   * Custom Operators
+   * Strict Mode
+   * BoundingBox Handling
+   * Error Handling
+   * Memory Considerations
+   * ps2svg Compatibility
+
+==== Development
+10. link:development.adoc[Development Guide]
+    * Development Setup
+    * Testing Guide
+    * Adding Operators
+    * Code Style
+    * Architecture Guidelines
+    * Release Process
+
+==== Contributing
+11. link:contributing.adoc[Contributing Guide]
+    * Bug Reports
+    * Feature Requests
+    * Code Contributions
+    * Documentation
+    * Pull Requests
+    * Code of Conduct
+
+==== Support
+12. link:troubleshooting.adoc[Troubleshooting Guide]
+    * Installation Problems
+    * Conversion Errors
+    * Validation Errors
+    * Performance Issues
+    * Debugging Techniques
+
+13. link:faq.adoc[Frequently Asked Questions]
+    * General Questions
+    * Installation & Setup
+    * Usage Questions
+    * Conversion Issues
+    * Performance
+    * Development
+    * Integration
+    * Comparisons
+
+14. link:quick-reference.adoc[Quick Reference]
+    * Installation
+    * CLI Commands
+    * Ruby API
+    * Common Workflows
+    * PostScript Basics
+    * Troubleshooting
+    * Performance Tips
+
+=== Meta Documentation
+
+* link:README.md[Documentation Guide] - How to build and contribute
+* link:DOCUMENTATION_PLAN.md[Documentation Plan] - Roadmap and status
+* link:CHANGELOG.md[Changelog] - Documentation changes
+* link:DEPLOYMENT.md[Deployment Guide] - How to deploy
+* link:sitemap.adoc[Site Map] - This document
+
+=== External Resources
+
+* link:https://github.com/metanorma/postsvg[GitHub Repository]
+* link:https://rubygems.org/gems/postsvg[RubyGems Package]
+* link:https://github.com/metanorma/postsvg/issues[Issue Tracker]
+* link:ps2svg_compatibility.adoc[ps2svg Compatibility Notes]
+
+== Navigation by User Type
+
+=== For New Users
+**Recommended Path:**
+1. link:index.adoc[Start Here] - Documentation home
+2. link:getting-started/installation.adoc[Install Postsvg]
+3. link:getting-started/first-conversion.adoc[First Conversion Tutorial]
+4. link:getting-started/basic-usage.adoc[Learn Basic Usage]
+5. link:getting-started/common-workflows.adoc[Explore Workflows]
+
+=== For Experienced Users
+**Quick Access:**
+* link:quick-reference.adoc[Quick Reference] - Commands and patterns
+* link:api-reference.adoc[API Reference] - Detailed API docs
+* link:cli-reference.adoc[CLI Reference] - Command options
+* link:advanced-topics.adoc[Advanced Topics] - Complex scenarios
+
+=== For Developers/Contributors
+**Development Resources:**
+* link:development.adoc[Development Guide] - Setup and testing
+* link:contributing.adoc[Contributing Guide] - How to contribute
+* link:architecture.adoc[Architecture] - System design
+* link:postscript/implementation-notes.adoc[Implementation Notes]
+
+=== For Troubleshooting
+**Problem Solving:**
+* link:troubleshooting.adoc[Troubleshooting Guide] - Common issues
+* link:faq.adoc[FAQ] - Frequently asked questions
+* link:quick-reference.adoc#troubleshooting[Quick Troubleshooting Tips]
+* link:https://github.com/metanorma/postsvg/issues[GitHub Issues]
+
+== Navigation by Topic
+
+=== Installation
+* link:getting-started/installation.adoc[Installation Guide]
+* link:troubleshooting.adoc#installation-problems[Installation Troubleshooting]
+* link:faq.adoc#system-requirements[System Requirements]
+
+=== Usage
+* link:getting-started/basic-usage.adoc[Basic Usage]
+* link:quick-reference.adoc[Quick Reference]
+* link:getting-started/common-workflows.adoc[Common Workflows]
+
+=== API
+* link:api-reference.adoc[API Overview]
+* link:api-reference/postsvg-module.adoc[Postsvg Module]
+* link:getting-started/basic-usage.adoc#ruby-api-usage[API Examples]
+
+=== CLI
+* link:cli-reference.adoc[CLI Overview]
+* link:quick-reference.adoc#command-line-interface[CLI Quick Reference]
+* link:getting-started/basic-usage.adoc#command-line-usage[CLI Examples]
+
+=== PostScript
+* link:postscript.adoc[PostScript Overview]
+* link:postscript/fundamentals.adoc[PostScript Fundamentals]
+* link:postscript/operators/index.adoc[Operator Reference]
+
+=== Validation
+* link:validation.adoc[Validation Overview]
+* link:cli-reference.adoc#file-validation[Validation Commands]
+* link:getting-started/common-workflows.adoc#workflow-1-single-file-conversion-with-validation[Validation Workflows]
+
+=== Optimization
+* link:optimization.adoc[Optimization Overview]
+* link:quick-reference.adoc#performance-tips[Performance Tips]
+* link:advanced-topics.adoc#memory-optimization[Memory Optimization]
+
+=== Architecture
+* link:architecture.adoc[Architecture Overview]
+* link:concepts.adoc#conversion-pipeline-overview[Pipeline Details]
+* link:development.adoc#project-structure[Project Structure]
+
+=== Development
+* link:development.adoc[Development Guide]
+* link:contributing.adoc[Contributing]
+* link:development.adoc#adding-a-new-postscript-operator[Adding Operators]
+
+== Search Tips
+
+**Use the search box** (top of page) to find:
+* Specific commands (e.g., "convert", "check")
+* Error messages (e.g., "unknown operator")
+* Concepts (e.g., "BoundingBox", "graphics state")
+* API methods (e.g., "Postsvg.convert")
+
+**Search strategies:**
+* Use exact terms for commands: `postsvg convert`
+* Use partial terms for concepts: `bound` finds BoundingBox
+* Use error text for troubleshooting: `command not found`
+
+== Quick Links by Task
+
+=== I want to...
+
+**Install Postsvg**
+→ link:getting-started/installation.adoc[Installation Guide]
+
+**Convert my first file**
+→ link:getting-started/first-conversion.adoc[First Conversion Tutorial]
+
+**Understand the API**
+→ link:api-reference.adoc[API Reference]
+
+**Use the CLI**
+→ link:cli-reference.adoc[CLI Reference]
+
+**Batch convert files**
+→ link:getting-started/common-workflows.adoc#workflow-2-batch-conversion-with-error-logging[Batch Workflows]
+
+**Validate files**
+→ link:validation.adoc[Validation System]
+
+**Solve a problem**
+→ link:troubleshooting.adoc[Troubleshooting]
+
+**Learn PostScript**
+→ link:postscript/fundamentals.adoc[PostScript Fundamentals]
+
+**Contribute code**
+→ link:contributing.adoc[Contributing Guide]
+
+**Deploy the docs**
+→ link:DEPLOYMENT.md[Deployment Guide]
+
+== Documentation Statistics
+
+* **Total Pages**: 27+ documentation files
+* **Parent Topics**: 11 major sections
+* **Child Topics**: 5+ detailed guides
+* **Code Examples**: 50+ tested examples
+* **Cross-References**: 200+ internal links
+* **Diagrams**: 10+ architecture visualizations
+
+== Getting Help
+
+If you can't find what you're looking for:
+
+1. **Search** using the search box at the top
+2. **Check** link:troubleshooting.adoc[Troubleshooting Guide]
+3. **Review** link:faq.adoc[FAQ]
+4. **Browse** this sitemap for all topics
+5. **Ask** on link:https://github.com/metanorma/postsvg/issues[GitHub Issues]
+
+== Document Status
+
+✅ = Complete and ready
+🔄 = In progress
+⏳ = Planned
+
+=== Completion Status
+
+**Infrastructure:** ✅ 100%
+**Getting Started:** ✅ 100%
+**Parent Topics:** ✅ 100%
+**Quick Reference:** ✅ 100%
+**API Reference:** 🔄 11% (1/9 files)
+**CLI Reference:** ⏳ 0% (overview only)
+**Other Topics:** ⏳ Optional deep-dives
+
+See link:DOCUMENTATION_PLAN.md[Documentation Plan] for details.
+
+== Next Steps
+
+**New to Postsvg?**
+Start with link:index.adoc[Documentation Home] → link:getting-started/installation.adoc[Installation] → link:getting-started/first-conversion.adoc[First Conversion]
+
+**Looking for something specific?**
+Use the search box or browse this sitemap by topic.
+
+**Want to contribute?**
+Read link:contributing.adoc[Contributing Guide] and link:development.adoc[Development Guide].

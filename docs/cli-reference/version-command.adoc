@@ -1,0 +1,296 @@
+= version Command
+:page-nav_order: 4
+:page-parent: CLI Reference
+
+== Purpose
+
+The `version` command displays the current version of Postsvg installed on your system. This is useful for troubleshooting, verifying installations, and ensuring compatibility.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../cli-reference.adoc[CLI Reference Overview]
+* link:convert-command.adoc[convert Command]
+* link:../getting-started/installation.adoc[Installation Guide]
+
+== Concepts
+
+**Semantic Versioning**:: Version numbering scheme (MAJOR.MINOR.PATCH) used by Postsvg.
+
+**Gem Version**:: The version of the Postsvg gem installed via RubyGems.
+
+## Command Syntax
+
+[source,sh]
+----
+postsvg version <1>
+----
+<1> Display Postsvg version number
+
+**Arguments:** None
+
+**Options:** None
+
+**Exit Code:** Always `0` (success)
+
+**Source:**
+[`lib/postsvg/cli.rb:145-148`](../../lib/postsvg/cli.rb:145)
+
+== Basic Usage
+
+=== Display Version
+
+[source,sh]
+----
+$ postsvg version
+postsvg version 0.1.0
+----
+
+.Check version after installation
+[example]
+====
+[source,sh]
+----
+# After installing
+$ gem install postsvg
+
+# Verify installation
+$ postsvg version
+postsvg version 0.1.0
+
+# Confirm command is accessible
+$ which postsvg
+/usr/local/lib/ruby/gems/3.2.0/bin/postsvg
+----
+====
+
+== Version Information
+
+=== Version Number Format
+
+Postsvg follows Semantic Versioning (SemVer):
+
+[source]
+----
+MAJOR.MINOR.PATCH
+  │     │     │
+  │     │     └─ Bug fixes
+  │     └─ New features (backwards compatible)
+  └─ Breaking changes
+----
+
+**Example Versions:**
+* `0.1.0` - Initial release
+* `0.1.1` - Bug fix release
+* `0.2.0` - New feature release
+* `1.0.0` - First stable release
+
+=== Version Checking in Scripts
+
+[source,sh]
+----
+#!/bin/bash
+# check-version.sh
+
+VERSION=$(postsvg version | cut -d' ' -f3)
+REQUIRED="0.1.0"
+
+if [ "$VERSION" != "$REQUIRED" ]; then
+  echo "Warning: Expected version $REQUIRED, found $VERSION"
+  exit 1
+fi
+
+echo "✓ Correct version installed"
+----
+
+.Minimum version check
+[example]
+====
+[source,sh]
+----
+#!/bin/bash
+# require-minimum-version.sh
+
+VERSION=$(postsvg version | awk '{print $3}')
+MAJOR=$(echo $VERSION | cut -d. -f1)
+MINOR=$(echo $VERSION | cut -d. -f2)
+
+if [ $MAJOR -eq 0 ] && [ $MINOR -lt 1 ]; then
+  echo "Error: Postsvg 0.1.0 or higher required"
+  echo "Found: $VERSION"
+  exit 1
+fi
+
+echo "✓ Version check passed: $VERSION"
+----
+====
+
+## Troubleshooting
+
+=== Command Not Found
+
+**Problem:**
+[source]
+----
+$ postsvg version
+bash: postsvg: command not found
+----
+
+**Solutions:**
+
+1. **Check if gem is installed:**
+   [source,sh]
+   ----
+   gem list postsvg
+   ----
+
+2. **Install if missing:**
+   [source,sh]
+   ----
+   gem install postsvg
+   ----
+
+3. **Add to PATH:**
+   [source,sh]
+   ----
+   export PATH="$PATH:$(gem environment gemdir)/bin"
+   ----
+
+=== Wrong Version
+
+**Problem:**
+Need different version than installed.
+
+**Solutions:**
+
+1. **Check installed versions:**
+   [source,sh]
+   ----
+   gem list postsvg
+   ----
+
+2. **Install specific version:**
+   [source,sh]
+   ----
+   gem install postsvg -v '0.2.0'
+   ----
+
+3. **Update to latest:**
+   [source,sh]
+   ----
+   gem update postsvg
+   ----
+
+4. **Uninstall old versions:**
+   [source,sh]
+   ----
+   gem uninstall postsvg --version '0.1.0'
+   ----
+
+== Usage Examples
+
+=== System Information Script
+
+[source,sh]
+----
+#!/bin/bash
+# system-info.sh
+
+echo "System Information for Postsvg"
+echo "=============================="
+echo "Postsvg version: $(postsvg version | awk '{print $3}')"
+echo "Ruby version: $(ruby -v)"
+echo "Gem directory: $(gem environment gemdir)"
+echo "Install location: $(which postsvg)"
+echo "=============================="
+----
+
+=== Compatibility Check
+
+[source,sh]
+----
+#!/bin/bash
+# compat-check.sh
+
+PS_VERSION=$(postsvg version | awk '{print $3}')
+RUBY_VERSION=$(ruby -e 'puts RUBY_VERSION')
+
+echo "Environment Check:"
+echo "  Postsvg: $PS_VERSION"
+echo "  Ruby: $RUBY_VERSION"
+
+# Check Ruby version >= 2.7
+RUBY_MAJOR=$(echo $RUBY_VERSION | cut -d. -f1)
+RUBY_MINOR=$(echo $RUBY_VERSION | cut -d. -f2)
+
+if [ $RUBY_MAJOR -lt 2 ] || ([ $RUBY_MAJOR -eq 2 ] && [ $RUBY_MINOR -lt 7 ]); then
+  echo "✗ Ruby 2.7 or higher required"
+  exit 1
+fi
+
+echo "✓ Environment compatible"
+----
+
+=== Version in Help
+
+The version is also shown in help output:
+
+[source,sh]
+----
+$ postsvg help
+Commands:
+  postsvg batch INPUT_DIR [OUTPUT_DIR]  # Convert all PS/EPS files in a directory
+  postsvg check FILES                   # Validate PostScript/EPS files
+  postsvg convert INPUT [OUTPUT]        # Convert PostScript/EPS file to SVG
+  postsvg help [COMMAND]                # Describe available commands...
+  postsvg version                       # Show version
+
+$ postsvg --version
+postsvg version 0.1.0
+----
+
+== Related Information
+
+=== Gem Information
+
+Get more details about the Postsvg gem:
+
+[source,sh]
+----
+# Gem info
+$ gem info postsvg
+
+# All versions installed
+$ gem list postsvg
+
+# Gem specification
+$ gem specification postsvg
+
+# Gem dependencies
+$ gem dependency postsvg
+----
+
+=== Version in Ruby Code
+
+Access version programmatically:
+
+[source,ruby]
+----
+require 'postsvg'
+
+puts Postsvg::VERSION
+# Output: 0.1.0
+----
+
+## Next Steps
+
+* Return to link:../index.adoc[Documentation Home]
+* Review link:convert-command.adoc[convert command]
+* See link:batch-command.adoc[batch command]
+* Check link:check-command.adoc[check command]
+
+== Bibliography
+
+* link:../getting-started/installation.adoc[Installation Guide]
+* link:https://semver.org/[Semantic Versioning Specification]
+* link:https://rubygems.org/gems/postsvg[Postsvg on RubyGems]

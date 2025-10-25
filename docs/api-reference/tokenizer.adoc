@@ -1,0 +1,925 @@
+= Tokenizer Class
+:page-nav_order: 11
+:page-parent: API Reference
+
+== Purpose
+
+The [`Tokenizer`](../../lib/postsvg/tokenizer.rb:8) class provides lexical analysis for PostScript code, breaking source code into discrete tokens that can be interpreted. It handles all PostScript token types including numbers, strings, operators, procedures, arrays, and dictionaries.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:interpreter.adoc[Interpreter Class]
+* link:converter.adoc[Converter Class]
+* link:../architecture.adoc[Architecture Overview]
+
+== Concepts
+
+**Tokenization**:: The process of breaking source code into meaningful units (tokens) for interpretation.
+
+**Lexical Analysis**:: The first phase of parsing that converts character sequences into tokens.
+
+**Token**:: A categorized unit of PostScript code with a type and value (e.g., number, string, operator).
+
+**PostScript Syntax**:: The grammar rules defining valid PostScript code structure, including literals, operators, and composite objects.
+
+**Escape Sequences**:: Special character sequences in strings starting with backslash (`\`) that represent non-printable or special characters.
+
+**Hexadecimal Strings**:: String literals encoded in hexadecimal format, enclosed in angle brackets `<...>`.
+
+== Class Overview
+
+The [`Tokenizer`](../../lib/postsvg/tokenizer.rb:8) class is defined in [`lib/postsvg/tokenizer.rb`](../../lib/postsvg/tokenizer.rb:1).
+
+**Responsibilities:**
+
+* Parse PostScript source code into tokens
+* Remove PostScript comments
+* Handle string escape sequences
+* Parse numeric literals (integers, floats, scientific notation)
+* Recognize operators and names
+* Parse composite structures (procedures, arrays, dictionaries)
+* Handle hexadecimal string encoding
+
+**Token Structure:**
+
+Tokens are represented using the [`Token`](../../lib/postsvg/tokenizer.rb:5) struct:
+
+[source,ruby]
+----
+Token = Struct.new(:type, :value, keyword_init: true)
+----
+
+**Token Types:**
+
+* `"number"` - Numeric literals
+* `"string"` - String literals in parentheses
+* `"hexstring"` - Hexadecimal encoded strings
+* `"operator"` - PostScript operators
+* `"name"` - Name literals (start with `/`)
+* `"brace"` - Procedure delimiters `{` `}`
+* `"bracket"` - Array delimiters `[` `]`
+* `"dict"` - Dictionary delimiters `<<` `>>`
+
+== Class Methods
+
+=== tokenize
+
+Tokenize PostScript source code into an array of tokens.
+
+**Syntax:**
+
+[source,ruby]
+----
+tokens = Postsvg::Tokenizer.tokenize(ps_code) <1>
+----
+<1> Parse PostScript code and return token array
+
+**Where:**
+
+`ps_code`:: String containing PostScript source code
+
+**Returns:**
+
+Array of [`Token`](../../lib/postsvg/tokenizer.rb:5) objects, each with:
+* `type` - String indicating token type
+* `value` - Token value (String or as-is)
+
+**Processing Steps:**
+
+1. Remove PostScript comments (text from `%` to end of line)
+2. Skip whitespace characters
+3. Match and classify tokens sequentially
+4. Handle escape sequences in strings
+5. Convert hexadecimal strings to binary
+
+**Source:**
+
+[`lib/postsvg/tokenizer.rb:9-33`](../../lib/postsvg/tokenizer.rb:9)
+
+.Basic tokenization
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+ps_code = "10 20 add"
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+tokens.each do |token|
+  puts "#{token.type}: #{token.value}"
+end
+
+# Output:
+# number: 10
+# number: 20
+# operator: add
+----
+====
+
+.Tokenize complex PostScript
+[example]
+====
+[source,ruby]
+----
+ps_code = <<~PS
+  /name 100 def
+  { 10 20 moveto } exec
+  [1 2 3] length
+PS
+
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+puts "Total tokens: #{tokens.length}"
+tokens.each do |token|
+  puts "  #{token.type.ljust(10)} #{token.value}"
+end
+
+# Output:
+# Total tokens: 15
+#   name       name
+#   number     100
+#   operator   def
+#   brace      {
+#   number     10
+#   number     20
+#   operator   moveto
+#   brace      }
+#   operator   exec
+#   bracket    [
+#   number     1
+#   number     2
+#   number     3
+#   bracket    ]
+#   operator   length
+----
+====
+
+.Handle comments
+[example]
+====
+[source,ruby]
+----
+ps_code = <<~PS
+  % This is a comment
+  10 20 add  % inline comment
+  % Another comment
+  30 sub
+PS
+
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+# Comments are removed during tokenization
+puts tokens.map(&:value).join(" ")
+# → "10 20 add 30 sub"
+----
+====
+
+.Tokenize strings
+[example]
+====
+[source,ruby]
+----
+ps_code = '(Hello World) show'
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+puts tokens[0].type   # → "string"
+puts tokens[0].value  # → "Hello World"
+puts tokens[1].type   # → "operator"
+puts tokens[1].value  # → "show"
+----
+====
+
+=== match_token
+
+Match a single token at the specified position (private class method).
+
+**Syntax:**
+
+[source,ruby]
+----
+token, new_index = Postsvg::Tokenizer.match_token(ps, index) <1>
+----
+<1> Internal method for matching tokens
+
+**Where:**
+
+`ps`:: PostScript source string
+
+`index`:: Current parsing position (Integer)
+
+**Returns:**
+
+Array containing:
+* `token` - [`Token`](../../lib/postsvg/tokenizer.rb:5) object or `nil` if no match
+* `new_index` - Updated position after token
+
+**Matching Order:**
+
+1. Strings `(...)`
+2. Numbers (integers, floats, scientific notation)
+3. Braces `{` `}`
+4. Brackets `[` `]`
+5. Dict markers `<<` `>>`
+6. Hex strings `<...>`
+7. Names `/name` and operators `name`
+
+**Source:**
+
+[`lib/postsvg/tokenizer.rb:35-77`](../../lib/postsvg/tokenizer.rb:35)
+
+=== match_string
+
+Parse a PostScript string literal (private class method).
+
+**Syntax:**
+
+[source,ruby]
+----
+token, new_index = Postsvg::Tokenizer.match_string(ps, index) <1>
+----
+<1> Internal method for parsing strings
+
+**Where:**
+
+`ps`:: PostScript source string
+
+`index`:: Position of opening `(`
+
+**Returns:**
+
+Array containing:
+* `token` - Token with type `"string"` and parsed value
+* `new_index` - Position after closing `)`
+
+**Features:**
+
+* Handles nested parentheses
+* Processes escape sequences
+* Supports multi-line strings
+* Tracks string depth for proper closure
+
+**Escape Sequences:**
+
+* `\n` → newline
+* `\r` → carriage return
+* `\t` → tab
+* `\b` → backspace
+* `\f` → form feed
+* `\(` → left parenthesis
+* `\)` → right parenthesis
+* `\\` → backslash
+* `\ddd` → octal character code (up to 3 digits)
+
+**Source:**
+
+[`lib/postsvg/tokenizer.rb:79-140`](../../lib/postsvg/tokenizer.rb:79)
+
+.String with escape sequences
+[example]
+====
+[source,ruby]
+----
+ps_code = '(Line1\nLine2\tTabbed)'
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+puts tokens[0].value
+# Output:
+# Line1
+# Line2	Tabbed
+----
+====
+
+.Nested parentheses
+[example]
+====
+[source,ruby]
+----
+ps_code = '(outer (nested) string)'
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+puts tokens[0].value  # → "outer (nested) string"
+----
+====
+
+.Octal escape sequences
+[example]
+====
+[source,ruby]
+----
+# \101 is octal for 'A'
+ps_code = '(\101\102\103)'
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+puts tokens[0].value  # → "ABC"
+----
+====
+
+=== match_hex_string
+
+Parse a hexadecimal string literal (private class method).
+
+**Syntax:**
+
+[source,ruby]
+----
+token, new_index = Postsvg::Tokenizer.match_hex_string(ps, index) <1>
+----
+<1> Internal method for parsing hex strings
+
+**Where:**
+
+`ps`:: PostScript source string
+
+`index`:: Position of opening `<`
+
+**Returns:**
+
+Array containing:
+* `token` - Token with type `"hexstring"` and decoded value
+* `new_index` - Position after closing `>`
+
+**Processing:**
+
+1. Extract hexadecimal characters between `<` and `>`
+2. Ignore whitespace in hex data
+3. Convert pairs of hex digits to bytes
+4. Return decoded binary string
+
+**Source:**
+
+[`lib/postsvg/tokenizer.rb:142-159`](../../lib/postsvg/tokenizer.rb:142)
+
+.Hexadecimal string
+[example]
+====
+[source,ruby]
+----
+# <48656C6C6F> is "Hello" in hex
+ps_code = '<48656C6C6F>'
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+puts tokens[0].type   # → "hexstring"
+puts tokens[0].value  # → "Hello"
+----
+====
+
+.Hex string with whitespace
+[example]
+====
+[source,ruby]
+----
+# Whitespace is ignored in hex strings
+ps_code = '<48 65 6C 6C 6F>'
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+puts tokens[0].value  # → "Hello"
+----
+====
+
+== Token Types
+
+=== Number Tokens
+
+**Formats:**
+
+* Integers: `10`, `-5`, `0`
+* Floats: `10.5`, `.5`, `10.`
+* Scientific notation: `1e3`, `3.14e-2`, `2E+5`
+
+**Detection:**
+
+[source,ruby]
+----
+/\A-?(?:\d+\.\d+|\d+\.|\.\d+|\d+)(?:[eE][+-]?\d+)?/
+----
+
+.Number examples
+[example]
+====
+[source,ruby]
+----
+ps_code = "10 -5 3.14 .5 1e3 2.5e-2"
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+tokens.each do |token|
+  puts token.value
+end
+
+# Output:
+# 10
+# -5
+# 3.14
+# .5
+# 1e3
+# 2.5e-2
+----
+====
+
+=== String Tokens
+
+**Format:** `(string content)`
+
+**Features:**
+
+* Nested parentheses support
+* Escape sequence processing
+* Multi-line strings
+* Binary data support
+
+.String token examples
+[example]
+====
+[source,ruby]
+----
+examples = [
+  '(simple)',
+  '(with (nested) parens)',
+  '(line1\nline2)',
+  '(tab\there)',
+  '(\101\102\103)'  # Octal
+]
+
+examples.each do |ps|
+  token = Postsvg::Tokenizer.tokenize(ps)[0]
+  puts "Input: #{ps}"
+  puts "Value: #{token.value.inspect}\n\n"
+end
+----
+====
+
+=== Operator Tokens
+
+**Format:** Alphanumeric names not starting with `/`
+
+**Pattern:** `[A-Za-z_\-.?*][A-Za-z0-9_\-.?*]*`
+
+**Examples:** `add`, `moveto`, `gsave`, `setrgbcolor`
+
+.Operator examples
+[example]
+====
+[source,ruby]
+----
+ps_code = "moveto lineto stroke gsave grestore"
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+tokens.each do |token|
+  puts "#{token.type}: #{token.value}"
+end
+
+# All recognized as operators
+----
+====
+
+=== Name Tokens
+
+**Format:** Names starting with `/`
+
+**Value:** Name without the leading `/`
+
+**Examples:** `/FontName`, `/MyVariable`, `/123`
+
+.Name token examples
+[example]
+====
+[source,ruby]
+----
+ps_code = "/name1 /name2 /123"
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+tokens.each do |token|
+  puts "#{token.type}: #{token.value}"
+end
+
+# Output:
+# name: name1
+# name: name2
+# name: 123
+----
+====
+
+=== Brace Tokens
+
+**Format:** `{` and `}`
+
+**Usage:** Delimit procedure bodies
+
+.Procedure tokenization
+[example]
+====
+[source,ruby]
+----
+ps_code = "{ 10 20 moveto }"
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+tokens.each do |token|
+  puts "#{token.type}: #{token.value}"
+end
+
+# Output:
+# brace: {
+# number: 10
+# number: 20
+# operator: moveto
+# brace: }
+----
+====
+
+=== Bracket Tokens
+
+**Format:** `[` and `]`
+
+**Usage:** Delimit array literals
+
+.Array tokenization
+[example]
+====
+[source,ruby]
+----
+ps_code = "[1 2 3 4 5]"
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+tokens.each do |token|
+  puts "#{token.type}: #{token.value}"
+end
+
+# Output:
+# bracket: [
+# number: 1
+# number: 2
+# number: 3
+# number: 4
+# number: 5
+# bracket: ]
+----
+====
+
+=== Dict Tokens
+
+**Format:** `<<` and `>>`
+
+**Usage:** Delimit dictionary literals
+
+.Dictionary tokenization
+[example]
+====
+[source,ruby]
+----
+ps_code = "<< /Type /Pattern /Width 100 >>"
+tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+tokens.each do |token|
+  puts "#{token.type}: #{token.value}"
+end
+
+# Output:
+# dict: <<
+# name: Type
+# name: Pattern
+# name: Width
+# number: 100
+# dict: >>
+----
+====
+
+== Usage Patterns
+
+=== Pattern 1: Pre-processing for Interpretation
+
+[source,ruby]
+----
+require 'postsvg'
+
+def process_postscript(ps_code)
+  # Tokenize
+  tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+  # Analyze tokens
+  stats = {
+    total: tokens.length,
+    numbers: tokens.count { |t| t.type == "number" },
+    strings: tokens.count { |t| t.type == "string" },
+    operators: tokens.count { |t| t.type == "operator" },
+    names: tokens.count { |t| t.type == "name" }
+  }
+
+  puts "Token Statistics:"
+  stats.each { |key, value| puts "  #{key}: #{value}" }
+
+  # Pass to interpreter
+  interpreter = Postsvg::Interpreter.new
+  interpreter.interpret(tokens, bbox)
+end
+----
+
+=== Pattern 2: Token Stream Analysis
+
+[source,ruby]
+----
+require 'postsvg'
+
+class TokenAnalyzer
+  def initialize(ps_code)
+    @tokens = Postsvg::Tokenizer.tokenize(ps_code)
+  end
+
+  def find_operator_usage(operator_name)
+    indices = []
+    @tokens.each_with_index do |token, i|
+      indices << i if token.type == "operator" && token.value == operator_name
+    end
+    indices
+  end
+
+  def extract_procedures
+    procedures = []
+    depth = 0
+    current_proc = []
+
+    @tokens.each do |token|
+      if token.type == "brace"
+        if token.value == "{"
+          depth += 1
+          current_proc = [] if depth == 1
+        elsif token.value == "}"
+          depth -= 1
+          if depth == 0 && !current_proc.empty?
+            procedures << current_proc.dup
+            current_proc = []
+          end
+        end
+      elsif depth > 0
+        current_proc << token
+      end
+    end
+
+    procedures
+  end
+
+  def list_defined_names
+    names = []
+    @tokens.each_with_index do |token, i|
+      if token.type == "name" &&
+         i + 2 < @tokens.length &&
+         @tokens[i + 2].type == "operator" &&
+         @tokens[i + 2].value == "def"
+        names << token.value
+      end
+    end
+    names
+  end
+end
+
+# Usage
+ps_code = <<~PS
+  /myvar 100 def
+  /myproc { 10 20 moveto } def
+  myvar myproc
+PS
+
+analyzer = TokenAnalyzer.new(ps_code)
+puts "Defined names: #{analyzer.list_defined_names.join(', ')}"
+puts "Procedures found: #{analyzer.extract_procedures.length}"
+----
+
+=== Pattern 3: Token Filtering
+
+[source,ruby]
+----
+require 'postsvg'
+
+def filter_tokens(ps_code, &block)
+  tokens = Postsvg::Tokenizer.tokenize(ps_code)
+  tokens.select(&block)
+end
+
+# Find all numbers
+numbers = filter_tokens(ps_code) { |t| t.type == "number" }
+puts "Numbers: #{numbers.map(&:value).join(', ')}"
+
+# Find all operators
+operators = filter_tokens(ps_code) { |t| t.type == "operator" }
+puts "Operators: #{operators.map(&:value).join(', ')}"
+
+# Find all strings
+strings = filter_tokens(ps_code) { |t| t.type == "string" }
+puts "Strings: #{strings.length} found"
+----
+
+=== Pattern 4: Token Validation
+
+[source,ruby]
+----
+require 'postsvg'
+
+class TokenValidator
+  def initialize(ps_code)
+    @tokens = Postsvg::Tokenizer.tokenize(ps_code)
+    @errors = []
+  end
+
+  def validate
+    check_balanced_braces
+    check_balanced_brackets
+    check_balanced_dicts
+
+    {
+      valid: @errors.empty?,
+      errors: @errors
+    }
+  end
+
+  private
+
+  def check_balanced_braces
+    depth = 0
+    @tokens.each do |token|
+      next unless token.type == "brace"
+      depth += (token.value == "{" ? 1 : -1)
+      @errors << "Unmatched '}'" if depth < 0
+    end
+    @errors << "Unclosed '{'" if depth > 0
+  end
+
+  def check_balanced_brackets
+    depth = 0
+    @tokens.each do |token|
+      next unless token.type == "bracket"
+      depth += (token.value == "[" ? 1 : -1)
+      @errors << "Unmatched ']'" if depth < 0
+    end
+    @errors << "Unclosed '['" if depth > 0
+  end
+
+  def check_balanced_dicts
+    depth = 0
+    @tokens.each do |token|
+      next unless token.type == "dict"
+      depth += (token.value == "<<" ? 1 : -1)
+      @errors << "Unmatched '>>'" if depth < 0
+    end
+    @errors << "Unclosed '<<'" if depth > 0
+  end
+end
+
+# Usage
+validator = TokenValidator.new(ps_code)
+result = validator.validate
+
+if result[:valid]
+  puts "✓ Valid PostScript syntax"
+else
+  puts "✗ Validation errors:"
+  result[:errors].each { |e| puts "  - #{e}" }
+end
+----
+
+== Thread Safety
+
+The `Tokenizer` class is **completely thread-safe** because:
+
+1. All methods are stateless class methods
+2. No shared mutable state
+3. Each tokenization creates independent token array
+4. Pure functions (same input → same output)
+
+.Thread-safe usage
+[example]
+====
+[source,ruby]
+----
+# Safe: Multiple threads can tokenize concurrently
+ps_files = Dir.glob('*.ps')
+
+threads = ps_files.map do |file|
+  Thread.new do
+    ps_code = File.read(file)
+    tokens = Postsvg::Tokenizer.tokenize(ps_code)
+    { file: file, token_count: tokens.length }
+  end
+end
+
+results = threads.map(&:value)
+results.each do |r|
+  puts "#{r[:file]}: #{r[:token_count]} tokens"
+end
+----
+====
+
+== Performance Considerations
+
+**Time Complexity:**
+
+* Overall: O(n) where n = source code length
+* Each character processed at most once
+* Regex matching at each position
+
+**Space Complexity:**
+
+* O(t) where t = number of tokens
+* Each token stores type and value
+* String tokens duplicate content
+
+**Performance Characteristics:**
+
+* Linear time complexity
+* Efficient single-pass parsing
+* No backtracking
+* Minimal memory overhead
+
+.Performance measurement
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+require 'benchmark'
+
+# Generate large PostScript file
+ps_code = (1..10_000).map do |i|
+  "#{i} #{i * 2} moveto #{i + 10} #{i * 2 + 10} lineto"
+end.join("\n")
+
+puts "Source size: #{ps_code.bytesize / 1024} KB"
+
+time = Benchmark.measure do
+  @tokens = Postsvg::Tokenizer.tokenize(ps_code)
+end
+
+puts "Tokenized in #{'%.3f' % time.real}s"
+puts "Tokens: #{@tokens.length}"
+puts "Rate: #{(ps_code.bytesize / time.real / 1024).to_i} KB/sec"
+puts "Throughput: #{(@tokens.length / time.real).to_i} tokens/sec"
+----
+====
+
+**Optimization Tips:**
+
+1. **Batch processing**: Tokenize once, interpret many times if needed
+2. **Cache tokens**: Store tokenized representation for repeated use
+3. **Pre-filter**: Remove comments before tokenization if not needed
+4. **Stream processing**: For huge files, consider streaming tokenization
+
+== Error Handling
+
+The tokenizer is designed to be tolerant:
+
+**Behavior:**
+
+* Invalid characters are skipped
+* Malformed tokens result in nil return
+* Unclosed strings/hexstrings proceed to end
+* No exceptions thrown during tokenization
+
+**Validation:**
+
+Consider post-tokenization validation for critical applications (see Pattern 4 above).
+
+.Handle potentially invalid input
+[example]
+====
+[source,ruby]
+----
+def safe_tokenize(ps_code)
+  begin
+    tokens = Postsvg::Tokenizer.tokenize(ps_code)
+
+    # Check for reasonable token count
+    if tokens.length > 1_000_000
+      { success: false, error: "Token limit exceeded" }
+    else
+      { success: true, tokens: tokens, count: tokens.length }
+    end
+  rescue => e
+    { success: false, error: e.message }
+  end
+end
+
+result = safe_tokenize(ps_code)
+
+if result[:success]
+  puts "Tokenized #{result[:count]} tokens"
+else
+  puts "Error: #{result[:error]}"
+end
+----
+====
+
+== Next Steps
+
+* Learn about link:interpreter.adoc[Interpreter] which processes tokenized output
+* Review link:converter.adoc[Converter] for the complete conversion pipeline
+* See link:../architecture.adoc[Architecture] for system design
+* Check link:../getting-started/basic-usage.adoc[Basic Usage] for examples
+
+== Bibliography
+
+* link:interpreter.adoc[Interpreter Documentation]
+* link:converter.adoc[Converter Documentation]
+* link:../architecture.adoc[Architecture Overview]
+* link:../getting-started/basic-usage.adoc[Basic Usage Guide]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual - Syntax]
+* link:https://en.wikipedia.org/wiki/Lexical_analysis[Wikipedia: Lexical Analysis]

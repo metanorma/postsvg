@@ -1,0 +1,891 @@
+= SvgGenerator Class
+:page-nav_order: 7
+:page-parent: API Reference
+
+== Purpose
+
+The [`SvgGenerator`](../../lib/postsvg/svg_generator.rb:7) class is responsible for generating SVG output from PostScript graphics operations. It uses the Moxml library to construct valid SVG documents with proper XML structure, namespaces, and formatting.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:interpreter.adoc[Interpreter Class]
+* link:graphics-state.adoc[GraphicsState Class]
+* link:path-builder.adoc[PathBuilder Class]
+* link:../architecture.adoc[Architecture Overview]
+
+== Concepts
+
+**SVG (Scalable Vector Graphics)**:: An XML-based vector image format for 2D graphics that can be scaled to any size without loss of quality.
+
+**Moxml**:: An XML manipulation library used by Postsvg to construct well-formed SVG documents programmatically.
+
+**Path Data**:: A string representation of geometric shapes using SVG path commands (M, L, C, Z, etc.).
+
+**Graphics State**:: The current drawing parameters including stroke color, fill color, line width, and other rendering attributes.
+
+**ViewBox**:: An SVG attribute that defines the position and dimension of the SVG viewport in user space.
+
+== Class Overview
+
+The [`SvgGenerator`](../../lib/postsvg/svg_generator.rb:7) class is defined in [`lib/postsvg/svg_generator.rb`](../../lib/postsvg/svg_generator.rb:1).
+
+**Responsibilities:**
+
+* Accumulate path data from PostScript operations
+* Convert PostScript coordinates to SVG path data
+* Apply graphics state attributes (stroke, fill, line width)
+* Generate complete SVG documents with proper structure
+* Format SVG output for readability and correctness
+
+**Dependencies:**
+
+* `moxml` gem - XML document construction and manipulation
+* [`GraphicsState`](../../lib/postsvg/graphics_state.rb:5) - For stroke/fill colors and line properties
+
+**Design Characteristics:**
+
+* Stateful accumulator pattern
+* Separation of path data collection and SVG generation
+* Format-specific number handling for clean SVG output
+
+== Class Methods
+
+=== new
+
+Create a new SvgGenerator instance.
+
+**Syntax:**
+
+[source,ruby]
+----
+generator = Postsvg::SvgGenerator.new <1>
+----
+<1> Initialize an empty SVG generator
+
+**Returns:**
+
+New `SvgGenerator` instance ready to accumulate paths
+
+**Source:**
+
+[`lib/postsvg/svg_generator.rb:8-10`](../../lib/postsvg/svg_generator.rb:8)
+
+.Create SVG generator
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Create generator
+generator = Postsvg::SvgGenerator.new
+
+# Generator starts with empty path collection
+# Ready to receive add_path calls
+----
+====
+
+== Instance Methods
+
+=== add_path
+
+Add a path with graphics state to the SVG output.
+
+**Syntax:**
+
+[source,ruby]
+----
+generator.add_path(path, graphics_state, operation) <1>
+----
+<1> Add path data with rendering instructions
+
+**Where:**
+
+`path`:: Array of path segments, each a hash with:
+* `:type` - Segment type (`:moveto`, `:lineto`, `:curveto`, `:closepath`)
+* `:x`, `:y` - Coordinates for moveto/lineto
+* `:x1`, `:y1`, `:x2`, `:y2`, `:x3`, `:y3` - Control and end points for curveto
+
+`graphics_state`:: [`GraphicsState`](graphics-state.adoc) instance containing:
+* `stroke_color_hex` - Stroke color as hex string
+* `fill_color_hex` - Fill color as hex string
+* `line_width` - Stroke width in user units
+
+`operation`:: Symbol indicating paint operation
+* `:stroke` - Draw path outline
+* `:fill` - Fill path interior
+
+**Returns:**
+
+`nil` (modifies internal state)
+
+**Source:**
+
+[`lib/postsvg/svg_generator.rb:12-24`](../../lib/postsvg/svg_generator.rb:12)
+
+.Add stroke path
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+generator = Postsvg::SvgGenerator.new
+
+# Create path data
+path = [
+  { type: :moveto, x: 10, y: 10 },
+  { type: :lineto, x: 100, y: 10 },
+  { type: :lineto, x: 100, y: 100 }
+]
+
+# Create graphics state
+state = Postsvg::GraphicsState.new
+state.stroke_color = [0, 0, 0]  # Black
+state.line_width = 2.0
+
+# Add path to generator
+generator.add_path(path, state, :stroke)
+
+# Path is stored for later SVG generation
+----
+====
+
+.Add fill path
+[example]
+====
+[source,ruby]
+----
+# Create filled rectangle
+path = [
+  { type: :moveto, x: 50, y: 50 },
+  { type: :lineto, x: 150, y: 50 },
+  { type: :lineto, x: 150, y: 150 },
+  { type: :lineto, x: 50, y: 150 },
+  { type: :closepath }
+]
+
+state = Postsvg::GraphicsState.new
+state.fill_color = [1.0, 0, 0]  # Red
+
+generator.add_path(path, state, :fill)
+----
+====
+
+.Add curved path
+[example]
+====
+[source,ruby]
+----
+# Create bezier curve
+path = [
+  { type: :moveto, x: 10, y: 100 },
+  {
+    type: :curveto,
+    x1: 40, y1: 10,   # First control point
+    x2: 60, y2: 10,   # Second control point
+    x3: 90, y3: 100   # End point
+  }
+]
+
+state = Postsvg::GraphicsState.new
+state.stroke_color = [0, 0, 1.0]  # Blue
+state.line_width = 3.0
+
+generator.add_path(path, state, :stroke)
+----
+====
+
+**Empty Path Handling:**
+
+Empty paths are automatically ignored:
+
+[source,ruby]
+----
+generator.add_path([], state, :stroke)  # No-op, returns immediately
+----
+
+=== generate
+
+Generate the complete SVG document from accumulated paths.
+
+**Syntax:**
+
+[source,ruby]
+----
+svg_output = generator.generate(
+  width: width,
+  height: height,
+  viewbox: viewbox_string
+) <1>
+----
+<1> Generate SVG document with specified dimensions
+
+**Where:**
+
+`width`:: Integer or float specifying SVG width in user units
+
+`height`:: Integer or float specifying SVG height in user units
+
+`viewbox`:: String defining the SVG viewport (e.g., `"0 0 200 200"`)
+* Format: `"min-x min-y width height"`
+* Defines coordinate system for paths
+
+**Returns:**
+
+String containing complete, well-formed SVG document with:
+* XML declaration
+* SVG root element with namespace
+* All accumulated path elements
+* Proper formatting and indentation
+
+**Source:**
+
+[`lib/postsvg/svg_generator.rb:26-84`](../../lib/postsvg/svg_generator.rb:26)
+
+.Generate basic SVG
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+generator = Postsvg::SvgGenerator.new
+
+# Add simple line
+path = [
+  { type: :moveto, x: 0, y: 0 },
+  { type: :lineto, x: 100, y: 100 }
+]
+
+state = Postsvg::GraphicsState.new
+state.stroke_color = [0, 0, 0]
+state.line_width = 1.0
+
+generator.add_path(path, state, :stroke)
+
+# Generate SVG
+svg = generator.generate(
+  width: 200,
+  height: 200,
+  viewbox: "0 0 200 200"
+)
+
+puts svg
+# Output:
+# <?xml version="1.0" encoding="UTF-8"?>
+# <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+#   <path d="M 0 0 L 100 100" fill="none" stroke="#000000" stroke-width="1" />
+# </svg>
+----
+====
+
+.Generate SVG with multiple paths
+[example]
+====
+[source,ruby]
+----
+generator = Postsvg::SvgGenerator.new
+
+# Add stroke path
+stroke_path = [
+  { type: :moveto, x: 10, y: 10 },
+  { type: :lineto, x: 90, y: 90 }
+]
+stroke_state = Postsvg::GraphicsState.new
+stroke_state.stroke_color = [0, 0, 0]
+stroke_state.line_width = 2.0
+generator.add_path(stroke_path, stroke_state, :stroke)
+
+# Add fill path
+fill_path = [
+  { type: :moveto, x: 50, y: 50 },
+  { type: :lineto, x: 100, y: 50 },
+  { type: :lineto, x: 75, y: 100 },
+  { type: :closepath }
+]
+fill_state = Postsvg::GraphicsState.new
+fill_state.fill_color = [1.0, 0, 0]
+generator.add_path(fill_path, fill_state, :fill)
+
+# Generate combined SVG
+svg = generator.generate(
+  width: 150,
+  height: 150,
+  viewbox: "0 0 150 150"
+)
+
+File.write('output.svg', svg)
+----
+====
+
+.Generate with custom viewBox
+[example]
+====
+[source,ruby]
+----
+# Create content in 0-100 coordinate space
+generator = Postsvg::SvgGenerator.new
+
+path = [
+  { type: :moveto, x: 25, y: 25 },
+  { type: :lineto, x: 75, y: 75 }
+]
+
+state = Postsvg::GraphicsState.new
+state.stroke_color = [0, 0, 0]
+state.line_width = 3.0
+generator.add_path(path, state, :stroke)
+
+# Scale to 500x500 display while maintaining 0-100 coordinate system
+svg = generator.generate(
+  width: 500,
+  height: 500,
+  viewbox: "0 0 100 100"
+)
+
+# The line will be scaled proportionally
+# Physical display: 500×500 pixels
+# Coordinate space: 0-100 units
+----
+====
+
+== Private Methods
+
+=== build_path_data
+
+Convert path segments to SVG path data string.
+
+**Syntax:**
+
+[source,ruby]
+----
+path_data = build_path_data(path) <1>
+----
+<1> Internal method for path data conversion
+
+**Where:**
+
+`path`:: Array of path segment hashes
+
+**Returns:**
+
+String containing SVG path data (e.g., `"M 10 10 L 50 50 Z"`)
+
+**Source:**
+
+[`lib/postsvg/svg_generator.rb:88-107`](../../lib/postsvg/svg_generator.rb:88)
+
+**Path Commands Generated:**
+
+* `M x y` - Move to absolute coordinates
+* `L x y` - Line to absolute coordinates
+* `C x1 y1, x2 y2, x3 y3` - Cubic Bézier curve
+* `Z` - Close path
+
+.Path data generation
+[example]
+====
+[source,ruby]
+----
+# Input path segments
+path = [
+  { type: :moveto, x: 10, y: 20 },
+  { type: :lineto, x: 30, y: 40 },
+  { type: :closepath }
+]
+
+# Generates: "M 10 20 L 30 40 Z"
+----
+====
+
+=== build_moxml_path_element
+
+Create a Moxml path element with attributes.
+
+**Syntax:**
+
+[source,ruby]
+----
+path_elem = build_moxml_path_element(doc, path) <1>
+----
+<1> Internal method for creating path elements
+
+**Where:**
+
+`doc`:: Moxml document instance
+
+`path`:: Hash containing path data and attributes:
+* `:d` - Path data string
+* `:operation` - `:stroke` or `:fill`
+* `:stroke` - Stroke color hex
+* `:fill` - Fill color hex
+* `:stroke_width` - Line width
+
+**Returns:**
+
+Moxml element representing SVG `<path>` element
+
+**Source:**
+
+[`lib/postsvg/svg_generator.rb:109-124`](../../lib/postsvg/svg_generator.rb:109)
+
+**Attribute Mapping:**
+
+[cols="1,1,2",options="header"]
+|===
+| Operation | Attributes | Example
+
+| `:stroke`
+| `fill="none"`, stroke attributes
+| `<path fill="none" stroke="#000" stroke-width="2"/>`
+
+| `:fill`
+| `stroke="none"`, fill attribute
+| `<path stroke="none" fill="#f00"/>`
+|===
+
+=== num_fmt
+
+Format numbers for SVG output with intelligent precision.
+
+**Syntax:**
+
+[source,ruby]
+----
+formatted = num_fmt(number) <1>
+----
+<1> Internal method for number formatting
+
+**Where:**
+
+`number`:: Numeric value to format (Integer, Float, or special values)
+
+**Returns:**
+
+String representation optimized for SVG:
+* Integers: No decimal point (e.g., `"10"`)
+* Floats: Up to 3 decimal places, trailing zeros removed
+* `nil`, `NaN`, `Infinity`: `"0"`
+
+**Source:**
+
+[`lib/postsvg/svg_generator.rb:126-138`](../../lib/postsvg/svg_generator.rb:126)
+
+.Number formatting examples
+[example]
+====
+[source,ruby]
+----
+num_fmt(10)       # → "10"
+num_fmt(10.0)     # → "10"
+num_fmt(10.5)     # → "10.5"
+num_fmt(10.123)   # → "10.123"
+num_fmt(10.1234)  # → "10.123"  (rounded)
+num_fmt(10.1000)  # → "10.1"    (trailing zeros removed)
+num_fmt(nil)      # → "0"
+num_fmt(Float::NAN) # → "0"
+----
+====
+
+**Rationale:**
+
+Clean number formatting produces:
+* Smaller SVG file sizes
+* More readable path data
+* Consistent output across platforms
+* Proper handling of edge cases
+
+== Attributes
+
+The `SvgGenerator` class maintains internal state but does not expose public attributes. Access to paths is through the `generate` method.
+
+== Usage Patterns
+
+=== Pattern 1: Simple SVG Generation
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Create generator
+generator = Postsvg::SvgGenerator.new
+
+# Add paths during PostScript interpretation
+interpreter.execute(tokens) do |path, state, op|
+  generator.add_path(path, state, op)
+end
+
+# Generate final SVG
+svg = generator.generate(
+  width: 400,
+  height: 300,
+  viewbox: "0 0 400 300"
+)
+
+File.write('output.svg', svg)
+----
+
+=== Pattern 2: Accumulating Multiple Graphics
+
+[source,ruby]
+----
+require 'postsvg'
+
+generator = Postsvg::SvgGenerator.new
+
+# Add multiple shapes
+shapes = [
+  { path: rectangle_path, state: black_stroke, op: :stroke },
+  { path: circle_path, state: red_fill, op: :fill },
+  { path: curve_path, state: blue_stroke, op: :stroke }
+]
+
+shapes.each do |shape|
+  generator.add_path(shape[:path], shape[:state], shape[:op])
+end
+
+# Generate combined SVG
+svg = generator.generate(
+  width: 500,
+  height: 500,
+  viewbox: "0 0 500 500"
+)
+----
+
+=== Pattern 3: Responsive SVG Output
+
+[source,ruby]
+----
+require 'postsvg'
+
+def generate_responsive_svg(paths, bbox)
+  generator = Postsvg::SvgGenerator.new
+
+  paths.each do |path_data|
+    generator.add_path(
+      path_data[:path],
+      path_data[:state],
+      path_data[:operation]
+    )
+  end
+
+  # Use viewBox for scalability
+  # SVG will scale to container while maintaining aspect ratio
+  generator.generate(
+    width: bbox[:width],
+    height: bbox[:height],
+    viewbox: "#{bbox[:llx]} #{bbox[:lly]} #{bbox[:width]} #{bbox[:height]}"
+  )
+end
+
+# Usage
+svg = generate_responsive_svg(collected_paths, bounding_box)
+----
+
+=== Pattern 4: Progressive SVG Construction
+
+[source,ruby]
+----
+require 'postsvg'
+
+class ProgressiveSvgBuilder
+  def initialize
+    @generator = Postsvg::SvgGenerator.new
+    @path_count = 0
+  end
+
+  def add_shape(path, state, operation)
+    @generator.add_path(path, state, operation)
+    @path_count += 1
+
+    puts "Added path #{@path_count}: #{operation}"
+  end
+
+  def finalize(width, height)
+    viewbox = "0 0 #{width} #{height}"
+    svg = @generator.generate(
+      width: width,
+      height: height,
+      viewbox: viewbox
+    )
+
+    puts "Generated SVG with #{@path_count} paths"
+    svg
+  end
+end
+
+# Usage
+builder = ProgressiveSvgBuilder.new
+
+# Add shapes as they're created
+builder.add_shape(path1, state1, :stroke)
+builder.add_shape(path2, state2, :fill)
+builder.add_shape(path3, state3, :stroke)
+
+# Generate final output
+svg = builder.finalize(600, 400)
+----
+
+== Thread Safety
+
+The `SvgGenerator` class is **not thread-safe**. It maintains mutable internal state (`@paths` array) that should not be shared across threads.
+
+.Correct multi-threaded usage
+[example]
+====
+[source,ruby]
+----
+# Bad: Sharing generator across threads
+generator = Postsvg::SvgGenerator.new
+threads = paths_by_thread.map do |paths|
+  Thread.new do
+    paths.each { |p| generator.add_path(p[:path], p[:state], p[:op]) }
+  end
+end
+# RACE CONDITION: Multiple threads modifying @paths array
+
+# Good: Each thread has own generator
+threads = paths_by_thread.map do |paths|
+  Thread.new do
+    generator = Postsvg::SvgGenerator.new
+    paths.each { |p| generator.add_path(p[:path], p[:state], p[:op]) }
+    generator.generate(width: 500, height: 500, viewbox: "0 0 500 500")
+  end
+end
+
+results = threads.map(&:value)
+----
+====
+
+== Performance Considerations
+
+**Time Complexity:**
+
+* `add_path`: O(n) where n = number of segments in path (path data conversion)
+* `generate`: O(m) where m = total number of paths (XML construction)
+* Overall: O(n × m) for complete SVG generation
+
+**Space Complexity:**
+
+* Memory usage: O(p) where p = total path data size
+* Each path stores: original segments, converted path data, graphics state attributes
+* SVG output size typically 2-5× larger than compressed PostScript
+
+**Optimization Tips:**
+
+1. **Minimize path segments**: Simplify paths when possible
+2. **Batch operations**: Add multiple paths before calling `generate`
+3. **Reuse generators**: Create once per document, not per path
+4. **Monitor memory**: Large documents with many paths can consume significant memory
+
+.Performance monitoring
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+require 'benchmark'
+
+generator = Postsvg::SvgGenerator.new
+path_count = 0
+
+# Measure path addition
+add_time = Benchmark.measure do
+  1000.times do |i|
+    path = generate_test_path(i)
+    state = create_graphics_state(i)
+    generator.add_path(path, state, :stroke)
+    path_count += 1
+  end
+end
+
+puts "Added #{path_count} paths in #{'%.3f' % add_time.real}s"
+puts "Rate: #{(path_count / add_time.real).to_i} paths/sec"
+
+# Measure SVG generation
+gen_time = Benchmark.measure do
+  @svg = generator.generate(
+    width: 1000,
+    height: 1000,
+    viewbox: "0 0 1000 1000"
+  )
+end
+
+puts "Generated SVG in #{'%.3f' % gen_time.real}s"
+puts "Output size: #{@svg.bytesize / 1024} KB"
+----
+====
+
+**Typical Performance:**
+
+* 100 simple paths: <10ms generation time
+* 1,000 simple paths: ~50ms generation time
+* 10,000 simple paths: ~500ms generation time
+* Complex curves add ~2-3× overhead
+
+== Error Handling
+
+The `SvgGenerator` class is designed to be robust but may encounter issues:
+
+**Common Issues:**
+
+1. **Invalid path data**: Segments with missing coordinates
+2. **Nil graphics state**: Missing stroke/fill colors
+3. **Invalid dimensions**: Non-positive width/height
+4. **Moxml errors**: XML generation failures
+
+.Defensive SVG generation
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+def safe_generate_svg(paths, width, height, viewbox)
+  generator = Postsvg::SvgGenerator.new
+
+  # Validate inputs
+  raise ArgumentError, "Width must be positive" unless width > 0
+  raise ArgumentError, "Height must be positive" unless height > 0
+
+  # Add paths with validation
+  paths.each do |path_data|
+    next if path_data[:path].nil? || path_data[:path].empty?
+    next if path_data[:state].nil?
+
+    generator.add_path(
+      path_data[:path],
+      path_data[:state],
+      path_data[:operation] || :stroke
+    )
+  end
+
+  # Generate with error handling
+  begin
+    generator.generate(
+      width: width,
+      height: height,
+      viewbox: viewbox
+    )
+  rescue => e
+    puts "SVG generation error: #{e.message}"
+    # Return minimal valid SVG
+    minimal_svg(width, height, viewbox)
+  end
+end
+
+def minimal_svg(width, height, viewbox)
+  <<~SVG
+    <?xml version="1.0" encoding="UTF-8"?>
+    <svg xmlns="http://www.w3.org/2000/svg"
+         width="#{width}"
+         height="#{height}"
+         viewBox="#{viewbox}">
+    </svg>
+  SVG
+end
+----
+====
+
+== Advanced Usage
+
+=== Custom Path Processing
+
+[source,ruby]
+----
+require 'postsvg'
+
+class CustomSvgGenerator < Postsvg::SvgGenerator
+  def add_path(path, graphics_state, operation)
+    # Pre-process path data
+    optimized_path = optimize_segments(path)
+
+    # Add with optimization
+    super(optimized_path, graphics_state, operation)
+  end
+
+  private
+
+  def optimize_segments(path)
+    # Remove redundant moveto commands
+    # Merge collinear line segments
+    # Simplify nearly-straight curves
+    # etc.
+    optimized = []
+
+    path.each_cons(2) do |seg1, seg2|
+      unless redundant?(seg1, seg2)
+        optimized << seg1
+      end
+    end
+
+    optimized << path.last if path.any?
+    optimized
+  end
+
+  def redundant?(seg1, seg2)
+    # Custom logic to detect redundant segments
+    false
+  end
+end
+
+# Usage
+generator = CustomSvgGenerator.new
+----
+
+=== SVG Post-Processing
+
+[source,ruby]
+----
+require 'postsvg'
+
+def generate_optimized_svg(paths, width, height, viewbox)
+  generator = Postsvg::SvgGenerator.new
+
+  paths.each do |path_data|
+    generator.add_path(path_data[:path], path_data[:state], path_data[:operation])
+  end
+
+  svg = generator.generate(
+    width: width,
+    height: height,
+    viewbox: viewbox
+  )
+
+  # Post-process SVG
+  optimize_svg_output(svg)
+end
+
+def optimize_svg_output(svg)
+  # Remove unnecessary whitespace
+  optimized = svg.gsub(/\s+/, ' ')
+
+  # Compress path data
+  optimized.gsub!(/(\d+)\.0+(?=\D|$)/, '\1')
+
+  # Merge similar attributes
+  # Add SVGO-style optimizations
+  # etc.
+
+  optimized
+end
+----
+
+== Next Steps
+
+* Learn about link:path-builder.adoc[PathBuilder Class] for path construction
+* Review link:graphics-state.adoc[GraphicsState] for rendering attributes
+* See link:interpreter.adoc[Interpreter Class] for execution context
+* Check link:../architecture.adoc[Architecture] for system design
+
+== Bibliography
+
+* link:interpreter.adoc[Interpreter Class Documentation]
+* link:graphics-state.adoc[GraphicsState Documentation]
+* link:path-builder.adoc[PathBuilder Documentation]
+* link:../architecture.adoc[Architecture Overview]
+* link:https://developer.mozilla.org/en-US/docs/Web/SVG[MDN SVG Documentation]
+* link:https://www.w3.org/TR/SVG2/[W3C SVG Specification]

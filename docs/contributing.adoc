@@ -1,0 +1,443 @@
+= Contributing Guide
+:page-nav_order: 9
+
+== Purpose
+
+Thank you for your interest in contributing to Postsvg! This guide explains how to contribute code, documentation, bug reports, and feature requests.
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:development.adoc[Development Guide]
+* link:https://github.com/metanorma/postsvg[GitHub Repository]
+* link:https://github.com/metanorma/postsvg/issues[Issue Tracker]
+
+== Concepts
+
+**Contribution Types**:: Code contributions, documentation improvements, bug reports, and feature requests.
+
+**Code of Conduct**:: Expected behavior and community standards for all contributors.
+
+**Pull Request Process**:: The workflow for submitting and reviewing code changes.
+
+**Issue Reporting**:: How to report bugs and request features effectively.
+
+== Ways to Contribute
+
+=== Report Bugs
+
+Found a bug? Please link:https://github.com/metanorma/postsvg/issues/new[create an issue] with:
+
+* **Clear title** describing the problem
+* **Steps to reproduce** the issue
+* **Expected behavior** vs actual behavior
+* **PostScript file** or minimal example (if applicable)
+* **Error messages** and stack traces
+* **Environment details** (Ruby version, OS, gem version)
+
+.Bug report template
+[example]
+====
+**Title:** Conversion fails on files with CMYK colors
+
+**Description:**
+PostScript files using `setcmykcolor` fail to convert with error "Unknown operator: setcmykcolor"
+
+**Steps to Reproduce:**
+1. Create PS file with CMYK color: `0.5 0.3 0.1 0.0 setcmykcolor`
+2. Run: `postsvg convert test.ps output.svg`
+3. Observe error
+
+**Expected:** Should convert CMYK to RGB
+**Actual:** Crashes with unknown operator error
+
+**Environment:**
+- postsvg 0.1.0
+- Ruby 3.2.0
+- macOS Sonoma 14.0
+====
+
+=== Request Features
+
+Have an idea? link:https://github.com/metanorma/postsvg/issues/new[Create a feature request] with:
+
+* **Use case** explaining why the feature is needed
+* **Proposed solution** or implementation ideas
+* **Alternatives considered**
+* **Impact** on existing functionality
+
+.Feature request template
+[example]
+====
+**Title:** Add support for gradient fills
+
+**Use Case:**
+Many modern PostScript files use gradient fills (shfill, axial shading). Currently these are not supported.
+
+**Proposed Solution:**
+Implement `shfill` operator to convert PostScript gradients to SVG `<linearGradient>` and `<radialGradient>` elements.
+
+**Alternatives:**
+1. Rasterize gradient areas (loses vector quality)
+2. Ignore gradients (loses visual accuracy)
+3. Approximate with solid colors (loses aesthetic)
+
+**Impact:**
+New feature, no breaking changes. Would greatly improve visual accuracy for modern PS files.
+====
+
+=== Improve Documentation
+
+Documentation improvements are always welcome:
+
+* Fix typos and grammar
+* Clarify confusing sections
+* Add examples and use cases
+* Improve code samples
+* Add missing API documentation
+
+Small fixes can be made directly via GitHub's web interface. Larger changes should follow the pull request process.
+
+=== Contribute Code
+
+Code contributions follow this process:
+
+1. **Check existing issues** - Avoid duplicate work
+2. **Discuss major changes** - Create an issue first for big changes
+3. **Fork and branch** - Work in a feature branch
+4. **Write tests** - All new code needs tests
+5. **Follow style guide** - Run RuboCop
+6. **Update documentation** - Document new features
+7. **Submit pull request** - Request review
+
+See link:development.adoc[Development Guide] for setup and workflow details.
+
+== Pull Request Guidelines
+
+=== Before Submitting
+
+✅ **Do:**
+* Run full test suite: `bundle exec rspec`
+* Check code style: `bundle exec rubocop -A`
+* Update documentation for new features
+* Write clear commit messages
+* Keep changes focused and atomic
+* Add tests for new functionality
+* Update CHANGELOG.md
+
+❌ **Don't:**
+* Mix unrelated changes in one PR
+* Submit untested code
+* Ignore RuboCop warnings
+* Break existing tests
+* Leave commented-out code
+* Add dependencies without discussion
+
+=== PR Description Template
+
+[source,markdown]
+----
+## Description
+Brief description of what this PR does.
+
+## Motivation
+Why is this change needed? What problem does it solve?
+
+## Changes
+- List of specific changes made
+- Each as a separate bullet point
+
+## Testing
+How was this tested?
+- [ ] Unit tests added/updated
+- [ ] Integration tests pass
+- [ ] Manual testing performed
+
+## Related Issues
+Closes #123
+Relates to #456
+
+## Checklist
+- [ ] Tests pass locally
+- [ ] RuboCop passes
+- [ ] Documentation updated
+- [ ] CHANGELOG.md updated
+----
+
+=== Code Review Process
+
+1. **Automated checks** run on every PR
+   - CI tests must pass
+   - Code coverage maintained
+   - RuboCop checks pass
+
+2. **Maintainer review**
+   - Code quality and style
+   - Test coverage
+   - Documentation completeness
+   - Architecture fit
+
+3. **Feedback and iteration**
+   - Address review comments
+   - Update as needed
+   - Request re-review
+
+4. **Merge**
+   - Squash and merge preferred
+   - Descriptive commit message
+   - PR automatically closed
+
+== Code Style Guidelines
+
+=== Ruby Style
+
+Follow the link:https://rubystyle.guide/[Ruby Style Guide]:
+
+[source,ruby]
+----
+# Good
+def convert_file(input_path, output_path = nil)
+  ps_content = File.read(input_path)
+  svg_content = convert(ps_content)
+  File.write(output_path, svg_content) if output_path
+  svg_content
+end
+
+# Bad
+def convertFile(inputPath, outputPath=nil)
+    ps_content=File.read(inputPath)
+    svg_content=convert(ps_content)
+    if outputPath
+        File.write(outputPath,svg_content)
+    end
+    return svg_content
+end
+----
+
+=== Documentation Style
+
+[source,ruby]
+----
+# Good
+# Converts PostScript content to SVG format
+#
+# @param ps_content [String] PostScript content to convert
+# @return [String] SVG markup
+def convert(ps_content)
+  # ...
+end
+
+# Bad - no documentation
+def convert(ps_content)
+  # ...
+end
+----
+
+=== Test Style
+
+[source,ruby]
+----
+# Good - descriptive and focused
+RSpec.describe Postsvg::Converter do
+  describe '#convert' do
+    it 'converts simple rectangle to SVG' do
+      ps = "newpath 0 0 moveto 100 0 lineto stroke"
+      svg = subject.convert(ps)
+      expect(svg).to include('<path')
+    end
+  end
+end
+
+# Bad - unclear purpose
+it 'works' do
+  result = subject.convert(input)
+  expect(result).to be_truthy
+end
+----
+
+== Commit Message Guidelines
+
+Use link:https://www.conventionalcommits.org/[Conventional Commits]:
+
+[source]
+----
+<type>(<scope>): <subject>
+
+[optional body]
+
+[optional footer]
+----
+
+**Types:**
+* `feat` - New feature
+* `fix` - Bug fix
+* `docs` - Documentation only
+* `style` - Code style (formatting, semicolons)
+* `refactor` - Code refactoring
+* `test` - Adding or updating tests
+* `chore` - Maintenance tasks
+
+**Examples:**
+
+[source]
+----
+feat(operators): add gradient fill support
+
+Implements shfill operator for linear and radial gradients.
+Converts PostScript shading to SVG gradient elements.
+
+Closes #123
+
+---
+
+fix(converter): handle malformed BoundingBox
+
+Previously crashed on malformed BoundingBox comments.
+Now falls back to default dimensions with warning.
+
+Fixes #456
+
+---
+
+docs(api): add examples for Matrix class
+
+Added usage examples for all Matrix transformation methods.
+
+---
+
+test(interpreter): improve procedure parsing coverage
+
+Added edge case tests for nested procedures and arrays.
+----
+
+## Testing Requirements
+
+=== Required Tests
+
+All code contributions must include tests:
+
+**Unit Tests:**
+[source,ruby]
+----
+# Test individual methods
+RSpec.describe Postsvg::Matrix do
+  describe '#translate' do
+    it 'translates by given offsets' do
+      matrix = described_class.new
+      result = matrix.translate(10, 20)
+
+      expect(result.e).to eq(10)
+      expect(result.f).to eq(20)
+    end
+  end
+end
+----
+
+**Integration Tests:**
+[source,ruby]
+----
+# Test full workflow
+RSpec.describe 'PostScript conversion' do
+  it 'converts rectangle to SVG' do
+    ps_file = 'spec/fixtures/rectangle.ps'
+    svg = Postsvg.convert_file(ps_file)
+
+    expect(svg).to include('<?xml')
+    expect(svg).to include('<svg')
+    expect(svg).to include('<path')
+  end
+end
+----
+
+=== Test Coverage
+
+* Maintain >80% code coverage
+* Cover edge cases and error conditions
+* Test both success and failure paths
+* Include integration tests for new features
+
+== Documentation Requirements
+
+=== Code Documentation
+
+[source,ruby]
+----
+# Use YARD format for API documentation
+##
+# Converts PostScript content to SVG format.
+#
+# @param ps_content [String] PostScript or EPS content
+# @return [String] SVG markup
+# @raise [Postsvg::Error] if conversion fails
+#
+# @example Convert simple PostScript
+#   ps = "newpath 0 0 moveto 100 100 lineto stroke"
+#   svg = Postsvg.convert(ps)
+#
+def convert(ps_content)
+  # ...
+end
+----
+
+=== User Documentation
+
+When adding features:
+
+1. Update relevant documentation files
+2. Add examples showing usage
+3. Document any new CLI options
+4. Update CHANGELOG.md
+5. Consider adding FAQ entries
+
+== License
+
+By contributing, you agree that your contributions will be licensed under the BSD 2-Clause License.
+
+== Code of Conduct
+
+### Our Standards
+
+**Positive behaviors:**
+* Being respectful and inclusive
+* Accepting constructive criticism
+* Focusing on what's best for the project
+* Showing empathy towards others
+
+**Unacceptable behaviors:**
+* Harassment or discriminatory language
+* Personal attacks or trolling
+* Publishing private information
+* Other unprofessional conduct
+
+### Enforcement
+
+Violations should be reported to project maintainers. All complaints will be reviewed and investigated promptly and fairly.
+
+## Getting Help
+
+**Questions about contributing?**
+* Check link:development.adoc[Development Guide]
+* Review link:architecture.adoc[Architecture Documentation]
+* Ask in GitHub Discussions
+* Comment on relevant issues
+
+**Need help with your contribution?**
+* Create a draft pull request early
+* Ask for feedback in comments
+* Tag maintainers for guidance
+
+== Recognition
+
+Contributors are recognized in:
+* GitHub contributors list
+* CHANGELOG.md for significant contributions
+* Project documentation for major features
+
+Thank you for making Postsvg better!
+
+== Bibliography
+
+* link:development.adoc[Development Guide]
+* link:https://www.conventionalcommits.org/[Conventional Commits Specification]
+* link:https://docs.github.com/en/pull-requests[GitHub Pull Request Documentation]
+* link:https://rubystyle.guide/[Ruby Style Guide]

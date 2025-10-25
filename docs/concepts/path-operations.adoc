@@ -1,0 +1,1076 @@
+= Path Operations
+:page-nav_order: 4
+:page-parent: Core Concepts
+
+== Purpose
+
+This document explains path construction and manipulation in Postsvg, covering how PostScript path operators build vector paths and how these paths are painted and converted to SVG. Understanding path operations is fundamental to working with vector graphics in PostScript and SVG.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../concepts.adoc[Core Concepts Overview]
+* link:graphics-state.adoc[Graphics State Management]
+* link:coordinate-systems.adoc[Coordinate Systems]
+* link:svg-generation.adoc[SVG Generation]
+
+== Concepts
+
+**Path**:: A sequence of connected and disconnected line and curve segments that defines a shape.
+
+**Current Path**:: The path being constructed, stored in the graphics state until painted or cleared.
+
+**Current Point**:: The endpoint of the last path segment, used as the starting point for the next segment.
+
+**Subpath**:: A continuous sequence of connected segments within a path; paths can contain multiple subpaths.
+
+**Path Painting**:: Rendering a path by stroking (outlining) or filling (interior coloring).
+
+== Path Construction Model
+
+=== The Path Building Process
+
+PostScript builds paths incrementally through a sequence of operators:
+
+.Path Construction Flow
+[source]
+----
+┌──────────────────────────────────────────────────────────┐
+│  1. newpath → Clear current path                         │
+│     Current path: []                                     │
+│     Current point: undefined                             │
+└──────────────────────────────────────────────────────────┘
+                         ↓
+┌──────────────────────────────────────────────────────────┐
+│  2. moveto → Start new subpath                           │
+│     Current path: [(M x,y)]                              │
+│     Current point: (x, y)                                │
+└──────────────────────────────────────────────────────────┘
+                         ↓
+┌──────────────────────────────────────────────────────────┐
+│  3. lineto/curveto → Add segments                        │
+│     Current path: [(M x1,y1)(L x2,y2)(L x3,y3)]         │
+│     Current point: (x3, y3)                              │
+└──────────────────────────────────────────────────────────┘
+                         ↓
+┌──────────────────────────────────────────────────────────┐
+│  4. closepath → Close subpath (optional)                 │
+│     Current path: [(M x1,y1)(L x2,y2)(L x3,y3)(Z)]      │
+│     Current point: (x1, y1) - back to start              │
+└──────────────────────────────────────────────────────────┘
+                         ↓
+┌──────────────────────────────────────────────────────────┐
+│  5. stroke/fill → Paint and clear path                   │
+│     Current path: [] - cleared after painting            │
+│     Current point: undefined                             │
+└──────────────────────────────────────────────────────────┘
+----
+
+=== Path State Components
+
+The path state is maintained in the graphics state:
+
+**Current Path**:: Array of path segments (moveto, lineto, curveto, closepath)
+
+**Current Point**:: Last touched coordinate (x, y)
+
+**Path Validity**:: Whether a current point is defined
+
+.Path State Example
+[example]
+====
+[source,postscript]
+----
+newpath
+% Path: [], Current point: undefined
+
+100 100 moveto
+% Path: [(M 100,100)], Current point: (100,100)
+
+200 100 lineto
+% Path: [(M 100,100)(L 200,100)], Current point: (200,100)
+
+200 200 lineto
+% Path: [(M 100,100)(L 200,100)(L 200,200)], Current point: (200,200)
+
+closepath
+% Path: [(M 100,100)(L 200,100)(L 200,200)(Z)], Current point: (100,100)
+----
+====
+
+== Path Construction Operators
+
+=== newpath
+
+Clears the current path and resets the current point to undefined.
+
+**Syntax:**
+
+[source,postscript]
+----
+- newpath -
+----
+
+**Purpose:**
+
+* Start fresh path construction
+* Clear any previously constructed path
+* Prepare for a new shape
+
+.Using newpath
+[example]
+====
+[source,postscript]
+----
+% First shape
+newpath
+100 100 moveto
+200 200 lineto
+stroke          % Paints and clears path
+
+% Second shape (newpath not strictly needed after stroke)
+newpath         % Explicitly start new path
+50 50 moveto
+150 50 lineto
+stroke
+----
+====
+
+**Important:** `stroke` and `fill` automatically clear the current path, so `newpath` is often redundant after painting operations.
+
+=== moveto
+
+Begins a new subpath at the specified coordinates.
+
+**Syntax:**
+
+[source,postscript]
+----
+x y moveto -
+----
+
+**Behavior:**
+
+* Sets current point to (x, y)
+* Starts a new subpath
+* Does not draw anything
+* If path already exists, creates a disconnected subpath
+
+.moveto Examples
+[example]
+====
+[source,postscript]
+----
+% Start a path
+100 100 moveto
+200 100 lineto
+stroke
+% Draws single line from (100,100) to (200,100)
+
+% Multiple subpaths
+newpath
+50 50 moveto        % First subpath
+150 50 lineto
+200 100 moveto      % Second subpath (disconnected)
+200 200 lineto
+stroke
+% Draws two separate line segments
+----
+====
+
+**Implementation:**
+
+The [`Moveto`](../../lib/postsvg/commands/path/moveto.rb:59) command:
+
+[source,ruby]
+----
+def execute(context)
+  y = context.pop_number
+  x = context.pop_number
+  context.path_builder.move_to(x, y)
+  context.current_x = x
+  context.current_y = y
+end
+----
+
+=== rmoveto
+
+Relative moveto - moves relative to current point.
+
+**Syntax:**
+
+[source,postscript]
+----
+dx dy rmoveto -
+----
+
+**Behavior:**
+
+* Moves to (current_x + dx, current_y + dy)
+* Requires existing current point
+* Useful for relative positioning
+
+.rmoveto Example
+[example]
+====
+[source,postscript]
+----
+100 100 moveto      % Current point: (100, 100)
+50 0 rmoveto        % Move to (150, 100)
+0 50 rlineto        % Line to (150, 150)
+stroke
+----
+====
+
+=== lineto
+
+Adds a straight line from current point to specified coordinates.
+
+**Syntax:**
+
+[source,postscript]
+----
+x y lineto -
+----
+
+**Behavior:**
+
+* Draws line from current point to (x, y)
+* Sets current point to (x, y)
+* Requires defined current point
+* Extends current subpath
+
+.lineto Examples
+[example]
+====
+[source,postscript]
+----
+% Simple line
+100 100 moveto
+200 200 lineto
+stroke
+
+% Polyline (connected segments)
+50 50 moveto
+100 75 lineto
+150 50 lineto
+200 100 lineto
+stroke
+
+% Rectangle using lineto
+100 100 moveto
+200 100 lineto
+200 200 lineto
+100 200 lineto
+closepath
+fill
+----
+====
+
+**Implementation:**
+
+The [`Lineto`](../../lib/postsvg/commands/path/lineto.rb:57) command:
+
+[source,ruby]
+----
+def execute(context)
+  y = context.pop_number
+  x = context.pop_number
+  context.path_builder.line_to(x, y)
+  context.current_x = x
+  context.current_y = y
+end
+----
+
+=== rlineto
+
+Relative lineto - adds line relative to current point.
+
+**Syntax:**
+
+[source,postscript]
+----
+dx dy rlineto -
+----
+
+.rlineto Example
+[example]
+====
+[source,postscript]
+----
+% Draw square using relative coordinates
+100 100 moveto      % Start at (100,100)
+100 0 rlineto       % Right 100 to (200,100)
+0 100 rlineto       % Up 100 to (200,200)
+-100 0 rlineto      % Left 100 to (100,200)
+closepath           % Back to start
+fill
+----
+====
+
+=== curveto
+
+Adds a cubic Bézier curve to the path.
+
+**Syntax:**
+
+[source,postscript]
+----
+x1 y1 x2 y2 x3 y3 curveto -
+----
+
+**Where:**
+
+* Current point (x0, y0) - curve start
+* (x1, y1) - first control point
+* (x2, y2) - second control point
+* (x3, y3) - curve end (new current point)
+
+**Bézier Curve Mathematics:**
+
+The curve is defined by:
+
+[source]
+----
+x(t) = (1-t)³·x0 + 3(1-t)²t·x1 + 3(1-t)t²·x2 + t³·x3
+y(t) = (1-t)³·y0 + 3(1-t)²t·y1 + 3(1-t)t²·y2 + t³·y3
+
+where t ranges from 0 to 1
+----
+
+.Bézier Curve Geometry
+[source]
+----
+           (x1,y1)           (x2,y2)
+              ●               ●
+             ╱ ╲             ╱ ╲
+            ╱   ╲___   ___╱   ╲
+           ╱        ╲ ╱        ╲
+    (x0,y0)●         ●         ●(x3,y3)
+      start     curve      end
+
+Properties:
+- Curve starts at (x0,y0), ends at (x3,y3)
+- Tangent at start points toward (x1,y1)
+- Tangent at end points from (x2,y2)
+- Curve contained in convex hull of 4 points
+----
+
+.curveto Examples
+[example]
+====
+[source,postscript]
+----
+% Simple S-curve
+100 100 moveto
+150 150 250 150 300 100 curveto
+stroke
+
+% Smooth curve chain
+100 100 moveto
+150 50 200 50 250 100 curveto    % First curve
+300 150 350 150 400 100 curveto  % Second curve
+stroke
+
+% Approximate circle (4 curves)
+% Using magic number 0.5522847498 for 90° arcs
+/r 50 def
+/k 0.5522847498 def
+200 200 moveto
+200 r k mul add 200 r add 200 k mul add 200 r add 200 200 r add curveto
+200 r sub k mul 200 r add 200 r sub 200 r add 200 k mul sub 200 r add curveto
+200 r sub 200 r add k mul sub 200 r sub k mul 200 r add 200 r sub curveto
+200 k mul 200 r sub 200 200 r sub k mul add 200 r sub 200 200 r sub curveto
+closepath
+stroke
+----
+====
+
+**Implementation:**
+
+The [`Curveto`](../../lib/postsvg/commands/path/curveto.rb:61) command:
+
+[source,ruby]
+----
+def execute(context)
+  y3 = context.pop_number
+  x3 = context.pop_number
+  y2 = context.pop_number
+  x2 = context.pop_number
+  y1 = context.pop_number
+  x1 = context.pop_number
+  context.path_builder.curve_to(x1, y1, x2, y2, x3, y3)
+  context.current_x = x3
+  context.current_y = y3
+end
+----
+
+=== rcurveto
+
+Relative curveto - curve with relative coordinates.
+
+**Syntax:**
+
+[source,postscript]
+----
+dx1 dy1 dx2 dy2 dx3 dy3 rcurveto -
+----
+
+All coordinates are relative to the current point.
+
+=== closepath
+
+Closes the current subpath by adding a line back to the subpath's starting point.
+
+**Syntax:**
+
+[source,postscript]
+----
+- closepath -
+----
+
+**Behavior:**
+
+* Adds straight line from current point to subpath start
+* Marks subpath as closed
+* Sets current point to subpath start
+* Subsequent path operators start a new subpath
+
+.closepath Behavior
+[source]
+----
+Without closepath:          With closepath:
+  100,100 → 200,100           100,100 → 200,100
+     ↓                           ↑  ↓
+  100,200 ← 200,200           100,200 ← 200,200
+
+  Gap at corner               Closed corner
+----
+
+.closepath Examples
+[example]
+====
+[source,postscript]
+----
+% Triangle without closepath
+newpath
+100 100 moveto
+200 100 lineto
+150 200 lineto
+stroke
+% Shows three lines, not fully closed
+
+% Triangle with closepath
+newpath
+100 100 moveto
+200 100 lineto
+150 200 lineto
+closepath
+stroke
+% Shows fully closed triangle
+
+% Multiple closed subpaths
+newpath
+% First square
+50 50 moveto
+150 50 lineto
+150 150 lineto
+50 150 lineto
+closepath
+% Second square
+200 200 moveto
+300 200 lineto
+300 300 lineto
+200 300 lineto
+closepath
+fill
+% Fills both squares
+----
+====
+
+**Implementation:**
+
+The [`ClosePath`](../../lib/postsvg/commands/path/close_path.rb:33) command:
+
+[source,ruby]
+----
+def execute(context)
+  return unless context.path_length.positive? &&
+    !context.path_builder.parts.last&.end_with?("Z")
+
+  context.path_builder.close
+end
+----
+
+== Subpaths
+
+=== What are Subpaths?
+
+A **subpath** is a continuous sequence of connected segments. A path can contain multiple disconnected subpaths.
+
+.Single vs. Multiple Subpaths
+[source]
+----
+Single Subpath:
+  moveto → lineto → lineto → closepath
+  All segments connected
+
+Multiple Subpaths:
+  moveto → lineto → lineto → closepath
+  moveto → lineto → lineto → closepath
+  Two disconnected shapes in one path
+----
+
+=== Creating Subpaths
+
+Each `moveto` after the first creates a new subpath:
+
+.Multiple Subpath Example
+[example]
+====
+[source,postscript]
+----
+newpath
+% First subpath (triangle)
+100 100 moveto
+200 100 lineto
+150 200 lineto
+closepath
+
+% Second subpath (square)
+250 100 moveto
+350 100 lineto
+350 200 lineto
+250 200 lineto
+closepath
+
+% Paint both subpaths
+fill
+----
+
+Both shapes are filled with a single `fill` operation.
+====
+
+=== Subpath Use Cases
+
+**Multiple Shapes:**
+
+[source,postscript]
+----
+% Draw multiple disconnected circles
+newpath
+100 100 50 0 360 arc
+250 100 50 0 360 arc
+400 100 50 0 360 arc
+fill
+% Fills all three circles at once
+----
+
+**Compound Paths (Holes):**
+
+[source,postscript]
+----
+% Outer square
+newpath
+50 50 moveto
+350 50 lineto
+350 350 lineto
+50 350 lineto
+closepath
+
+% Inner square (hole) - use opposite winding
+150 150 moveto
+150 250 lineto
+250 250 lineto
+250 150 lineto
+closepath
+
+fill
+% Fills outer square with hole cut out
+----
+
+== Path Painting Operations
+
+=== stroke
+
+Paints the outline of the current path using current line attributes.
+
+**Syntax:**
+
+[source,postscript]
+----
+- stroke -
+----
+
+**Effects:**
+
+* Paints path outline with current stroke color
+* Uses current line width, cap, join, dash pattern
+* Clears the current path after painting
+* Resets current point to undefined
+
+.stroke Examples
+[example]
+====
+[source,postscript]
+----
+% Simple stroke
+newpath
+100 100 moveto
+200 200 lineto
+1 setlinewidth
+0 0 0 setrgbcolor
+stroke
+
+% Styled stroke
+newpath
+50 50 moveto
+350 50 lineto
+5 setlinewidth           % Thick line
+1 setlinecap             % Round caps
+1 setlinejoin            % Round joins
+[10 5] 0 setdash         % Dashed pattern
+1 0 0 setrgbcolor        % Red color
+stroke
+----
+====
+
+**Line Attributes:**
+
+See link:graphics-state.adoc#line-attributes[Line Attributes] for details on:
+
+* Line width
+* Line cap style
+* Line join style
+* Dash pattern
+* Miter limit
+
+=== fill
+
+Paints the interior of the current path using the fill color.
+
+**Syntax:**
+
+[source,postscript]
+----
+- fill -
+----
+
+**Effects:**
+
+* Paints path interior with current fill color
+* Uses non-zero winding number rule
+* Clears the current path after painting
+* Resets current point to undefined
+
+.fill Examples
+[example]
+====
+[source,postscript]
+----
+% Simple fill
+newpath
+100 100 moveto
+200 100 lineto
+200 200 lineto
+100 200 lineto
+closepath
+0.5 setgray
+fill
+
+% Multiple subpaths
+newpath
+% Outer rectangle
+50 50 moveto
+350 50 lineto
+350 350 lineto
+50 350 lineto
+closepath
+% Inner rectangle (creates hole)
+150 150 moveto
+150 250 lineto
+250 250 lineto
+250 150 lineto
+closepath
+fill
+----
+====
+
+=== eofill
+
+Even-odd fill - alternative fill rule.
+
+**Syntax:**
+
+[source,postscript]
+----
+- eofill -
+----
+
+**Fill Rules Comparison:**
+
+.Non-Zero Winding vs. Even-Odd
+[source]
+----
+Non-zero winding (fill):
+  Counts path windings
+  Same direction: fills
+  Opposite direction: creates hole
+
+Even-odd (eofill):
+  Counts path crossings
+  Odd crossings: fill
+  Even crossings: no fill
+----
+
+.eofill Example
+[example]
+====
+[source,postscript]
+----
+% Star with even-odd fill
+newpath
+% Outer star points (clockwise)
+200 50 moveto
+220 150 lineto
+320 150 lineto
+240 210 lineto
+270 310 lineto
+200 250 lineto
+130 310 lineto
+160 210 lineto
+80 150 lineto
+180 150 lineto
+closepath
+eofill
+% Creates filled star with hollow center
+----
+====
+
+=== clip
+
+Uses the current path as a clipping path.
+
+**Syntax:**
+
+[source,postscript]
+----
+- clip -
+----
+
+**Behavior:**
+
+* Sets current path as clipping region
+* Does NOT paint the path
+* Does NOT clear the path (use `newpath` after)
+* All subsequent operations clipped to this region
+
+.clip Example
+[example]
+====
+[source,postscript]
+----
+% Clip to circle
+newpath
+200 200 100 0 360 arc
+clip
+newpath  % Clear clip path without painting
+
+% All drawing now clipped to circle
+0 0 moveto
+400 400 lineto
+stroke
+% Line only visible inside circle
+----
+====
+
+== Path to SVG Conversion
+
+=== SVG Path Data Format
+
+PostScript paths map directly to SVG path data:
+
+.Path Command Mapping
+[source]
+----
+PostScript          SVG Path Data
+───────────────────────────────────────
+moveto x y      →   M x y
+lineto x y      →   L x y
+curveto x1 y1   →   C x1 y1 x2 y2 x3 y3
+  x2 y2 x3 y3
+closepath       →   Z
+----
+
+.Conversion Example
+[example]
+====
+**PostScript:**
+
+[source,postscript]
+----
+newpath
+100 100 moveto
+200 100 lineto
+200 200 lineto
+100 200 lineto
+closepath
+fill
+----
+
+**SVG:**
+
+[source,xml]
+----
+<path d="M 100 100 L 200 100 L 200 200 L 100 200 Z"
+      fill="#808080"
+      stroke="none"/>
+----
+====
+
+=== PathBuilder Implementation
+
+The [`PathBuilder`](../../lib/postsvg/path_builder.rb:7) class constructs SVG path data:
+
+[source,ruby]
+----
+# Create path builder
+builder = PathBuilder.new
+
+# Add segments
+builder.move_to(100, 100)
+builder.line_to(200, 100)
+builder.line_to(200, 200)
+builder.close
+
+# Generate SVG path data
+path_data = builder.to_path
+# => "M 100 100 L 200 100 L 200 200 Z"
+----
+
+=== Coordinate Transformation
+
+Paths are built in PostScript coordinates, then transformed for SVG:
+
+[source,ruby]
+----
+# PostScript coordinates (Y up)
+builder.move_to(50, 50)    # Near bottom
+builder.line_to(50, 150)   # Near top
+
+# SVG applies transform
+# <g transform="translate(0 200) scale(1 -1)">
+#   <path d="M 50 50 L 50 150"/>
+# </g>
+# Renders correctly with Y-axis flip
+----
+
+== Advanced Path Techniques
+
+=== Smooth Curves
+
+Create smooth curves by aligning control points:
+
+.Smooth Curve Chain
+[example]
+====
+[source,postscript]
+----
+% First curve
+100 100 moveto
+150 50 200 50 250 100 curveto
+
+% Second curve - control point aligned
+% Previous end: (250,100)
+% Previous control: (200,50)
+% Reflected control: (300,150) = 2×250 - 200, 2×100 - 50
+300 150 350 150 400 100 curveto
+stroke
+----
+====
+
+=== Approximating Arcs
+
+Use Bézier curves to approximate circular arcs:
+
+.Quarter Circle Approximation
+[example]
+====
+[source,postscript]
+----
+% Magic number for 90° arc: κ = 4(√2-1)/3 ≈ 0.5522847498
+/r 50 def              % Radius
+/k 0.5522847498 def    % Control point distance
+
+% Quarter circle from (r,0) to (0,r)
+r 0 moveto
+r k r mul 0 k r mul r 0 r curveto
+stroke
+----
+
+The control points are at distance `κ × r` from the endpoints.
+====
+
+=== Path Winding
+
+Path direction affects filling with holes:
+
+.Winding Direction
+[example]
+====
+[source,postscript]
+----
+% Outer square (clockwise)
+newpath
+100 100 moveto
+300 100 lineto
+300 300 lineto
+100 300 lineto
+closepath
+
+% Inner square (counter-clockwise for hole)
+200 200 moveto
+200 150 lineto
+150 150 lineto
+150 200 lineto
+closepath
+
+fill
+% Outer filled, inner hollow
+----
+====
+
+== Common Path Patterns
+
+=== Rectangle
+
+[source,postscript]
+----
+x y width height rectfill
+
+% Or manually:
+x y moveto
+x width add y lineto
+x width add y height add lineto
+x y height add lineto
+closepath
+fill
+----
+
+=== Circle
+
+[source,postscript]
+----
+x y radius 0 360 arc
+fill
+
+% Using 4 Bézier curves for perfect circle
+----
+
+=== Rounded Rectangle
+
+[source,postscript]
+----
+/roundrect {  % x y width height radius
+  /r exch def
+  /h exch def
+  /w exch def
+  /y exch def
+  /x exch def
+
+  newpath
+  x r add y moveto
+  x w add r sub y x w add y r add r arcto
+  x w add y h add r sub x w add r sub y h add r arcto
+  x r add y h add x y h add r sub r arcto
+  x y r add x r add y r arcto
+  closepath
+} def
+
+100 100 200 150 20 roundrect
+fill
+----
+
+== Troubleshooting Path Issues
+
+=== No Current Point Error
+
+**Problem:** Operator requires current point but none exists
+
+**Cause:**
+
+[source,postscript]
+----
+newpath
+lineto 100 100  % ERROR: no current point
+----
+
+**Solution:**
+
+[source,postscript]
+----
+newpath
+moveto 50 50    % Set current point first
+lineto 100 100  % Now works
+----
+
+=== Path Not Closing
+
+**Problem:** Shape has gap at corner
+
+**Cause:** Missing `closepath`
+
+**Solution:**
+
+[source,postscript]
+----
+% Wrong
+100 100 moveto
+200 100 lineto
+200 200 lineto
+100 200 lineto
+stroke  % Gap at (100,100)
+
+% Correct
+100 100 moveto
+200 100 lineto
+200 200 lineto
+100 200 lineto
+closepath
+stroke  % Fully closed
+----
+
+=== Empty SVG Path
+
+**Problem:** Path not appearing in SVG
+
+**Cause:** Path not painted before end
+
+**Solution:**
+
+[source,postscript]
+----
+newpath
+100 100 moveto
+200 200 lineto
+stroke  % Must paint!
+% Without stroke/fill, path is lost
+----
+
+== Next Steps
+
+* Review link:svg-generation.adoc[SVG Generation] for output details
+* Explore link:graphics-state.adoc[Graphics State] for path state
+* See link:coordinate-systems.adoc[Coordinate Systems] for transformations
+* Check link:../api-reference.adoc[API Reference] for path commands
+* Read link:conversion-pipeline.adoc[Conversion Pipeline] for the full process
+
+== Bibliography
+
+* link:svg-generation.adoc[SVG Generation Details]
+* link:graphics-state.adoc[Graphics State Management]
+* link:coordinate-systems.adoc[Coordinate Systems]
+* link:../architecture.adoc[Architecture Overview]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual] - Chapter 4: Graphics
+* link:https://www.w3.org/TR/SVG/paths.html[SVG Paths Specification]
+* link:https://pomax.github.io/bezierinfo/[A Primer on Bézier Curves]

@@ -1,0 +1,616 @@
+= batch Command
+:page-nav_order: 2
+:page-parent: CLI Reference
+
+== Purpose
+
+The `batch` command enables efficient conversion of multiple PostScript and EPS files in a directory. It's optimized for bulk processing and provides progress reporting for all conversions.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../cli-reference.adoc[CLI Reference Overview]
+* link:convert-command.adoc[convert Command]
+* link:check-command.adoc[check Command]
+* link:../getting-started/common-workflows.adoc[Common Workflows]
+
+== Concepts
+
+**Batch Processing**:: Converting multiple files in a single operation.
+
+**Directory Processing**:: Automatically finding and converting all matching files in a directory.
+
+**Progress Reporting**:: Displaying status for each file as it's processed.
+
+**Error Tolerance**:: Continuing to process remaining files even if some conversions fail.
+
+== Command Syntax
+
+[source,sh]
+----
+postsvg batch [OPTIONS] INPUT_DIR [OUTPUT_DIR] <1>
+----
+<1> Convert all PS/EPS files in INPUT_DIR, optionally saving to OUTPUT_DIR
+
+**Where:**
+
+`INPUT_DIR`:: Directory containing PostScript (`.ps`) and/or EPS (`.eps`) files (required)
+
+`OUTPUT_DIR`:: Directory where SVG files should be saved (optional). If omitted, SVG files are saved in `INPUT_DIR` with `.svg` extension.
+
+**Options:**
+
+`--strict`:: Enable strict mode (fail on unknown operators)
+
+**Exit Codes:**
+* `0` - Success (all files converted successfully)
+* `1` - Partial failure (one or more files failed to convert)
+
+**Source:**
+[`lib/postsvg/cli.rb:52-107`](../../lib/postsvg/cli.rb:52)
+
+== Basic Usage
+
+=== Convert to Same Directory
+
+Convert all files and save SVG in the same directory:
+
+[source,sh]
+----
+postsvg batch input_dir/ <1>
+----
+<1> Converts all PS/EPS files, creates SVG files in `input_dir/`
+
+**Output:**
+[source]
+----
+Found 3 file(s) to convert
+  ✓ input_dir/file1.ps → input_dir/file1.svg
+  ✓ input_dir/file2.eps → input_dir/file2.svg
+  ✓ input_dir/file3.ps → input_dir/file3.svg
+----
+
+.In-place batch conversion
+[example]
+====
+[source,sh]
+----
+$ ls ps_files/
+diagram1.ps  diagram2.eps  figure.ps
+
+$ postsvg batch ps_files/
+Found 3 file(s) to convert
+  ✓ ps_files/diagram1.ps → ps_files/diagram1.svg
+  ✓ ps_files/diagram2.eps → ps_files/diagram2.svg
+  ✓ ps_files/figure.ps → ps_files/figure.svg
+
+$ ls ps_files/
+diagram1.ps  diagram1.svg  diagram2.eps  diagram2.svg  figure.ps  figure.svg
+----
+
+Original PS/EPS files are preserved.
+====
+
+=== Convert to Different Directory
+
+Save converted SVG files to a separate directory:
+
+[source,sh]
+----
+postsvg batch input_dir/ output_dir/ <1>
+----
+<1> Converts all PS/EPS files from `input_dir/`, saves SVG to `output_dir/`
+
+**Behavior:**
+* Output directory is created if it doesn't exist
+* Original files remain untouched
+* SVG files use same basename as source files
+
+.Separate output directory
+[example]
+====
+[source,sh]
+----
+$ ls ps_files/
+file1.ps  file2.eps
+
+$ postsvg batch ps_files/ svg_files/
+Found 2 file(s) to convert
+  ✓ ps_files/file1.ps → svg_files/file1.svg
+  ✓ ps_files/file2.eps → svg_files/file2.svg
+
+$ ls svg_files/
+file1.svg  file2.svg
+----
+
+Input directory (`ps_files/`) remains unchanged.
+====
+
+== Command Options
+
+=== --strict
+
+Enable strict mode for all conversions:
+
+[source,sh]
+----
+postsvg batch --strict input_dir/ output_dir/ <1>
+----
+<1> All conversions use strict mode
+
+**Effect:**
+* Fails on any unknown operators
+* More rigorous validation
+* Helps identify compatibility issues
+
+.Strict mode batch processing
+[example]
+====
+[source,sh]
+----
+$ postsvg batch --strict test_files/
+Found 3 file(s) to convert
+  ✓ test_files/simple.ps → test_files/simple.svg
+  ✗ test_files/complex.ps: Unknown operator: shfill
+  ✓ test_files/basic.eps → test_files/basic.svg
+----
+
+With strict mode, files with unsupported operators fail conversion.
+====
+
+== File Discovery
+
+=== Pattern Matching
+
+The batch command finds files using case-insensitive pattern matching:
+
+**Matched Extensions:**
+* `.ps` (PostScript)
+* `.PS` (uppercase)
+* `.eps` (Encapsulated PostScript)
+* `.EPS` (uppercase)
+* `.Eps`, `.ePs`, etc. (mixed case)
+
+.Case-insensitive matching
+[example]
+====
+[source,sh]
+----
+$ ls mixed_case/
+File1.PS  file2.eps  FILE3.EPS  diagram.Ps
+
+$ postsvg batch mixed_case/
+Found 4 file(s) to convert
+  ✓ mixed_case/File1.PS → mixed_case/File1.svg
+  ✓ mixed_case/file2.eps → mixed_case/file2.svg
+  ✓ mixed_case/FILE3.EPS → mixed_case/FILE3.svg
+  ✓ mixed_case/diagram.Ps → mixed_case/diagram.svg
+----
+====
+
+=== Subdirectory Handling
+
+**Current Behavior:**
+Batch command only processes files in the top level of `INPUT_DIR`, **not** in subdirectories.
+
+.Directory structure
+[example]
+====
+[source]
+----
+input/
+├── file1.ps          ← Converted ✓
+├── file2.eps         ← Converted ✓
+└── subdir/
+    └── file3.ps      ← NOT converted (in subdirectory)
+----
+
+[source,sh]
+----
+$ postsvg batch input/
+Found 2 file(s) to convert
+  ✓ input/file1.ps → input/file1.svg
+  ✓ input/file2.eps → input/file2.svg
+
+# file3.ps in subdir/ is not processed
+----
+
+**Workaround for subdirectories:**
+[source,sh]
+----
+# Process each subdirectory separately
+for dir in input/*/; do
+  postsvg batch "$dir"
+done
+
+# Or use find + convert
+find input/ -name "*.ps" -o -name "*.eps" | while read file; do
+  postsvg convert "$file" "${file%.*}.svg"
+done
+----
+====
+
+== Error Handling
+
+=== Partial Failures
+
+The batch command continues processing even if some files fail:
+
+[source,sh]
+----
+$ postsvg batch mixed_quality/
+Found 4 file(s) to convert
+  ✓ mixed_quality/good1.ps → mixed_quality/good1.svg
+  ✗ mixed_quality/broken.ps: Conversion error: Invalid syntax
+  ✓ mixed_quality/good2.eps → mixed_quality/good2.svg
+  ✗ mixed_quality/incomplete.ps: Conversion error: Stack underflow
+----
+
+**Exit Code:** `1` (because some files failed)
+
+**Behavior:**
+* Successfully converted files are saved
+* Failed files are skipped
+* All files are attempted
+* Summary shows which failed
+
+=== Empty Directory
+
+[source,sh]
+----
+$ postsvg batch empty_dir/
+No PS or EPS files found in empty_dir/
+----
+
+**Exit Code:** `0` (not an error)
+
+=== Missing Directory
+
+[source,sh]
+----
+$ postsvg batch nonexistent/
+Error: Input directory 'nonexistent/' not found
+----
+
+**Exit Code:** `1` (error)
+
+== Output Control
+
+=== Output File Naming
+
+SVG files use the same basename as input files:
+
+[source]
+----
+Input                 Output
+----------------------|------------------
+diagram.ps        →   diagram.svg
+FIGURE.EPS        →   FIGURE.svg
+chart.PS          →   chart.svg
+----
+
+**Extension Replacement:**
+* `.ps` → `.svg`
+* `.eps` → `.svg`
+* `.PS` → `.svg`
+* `.EPS` → `.svg`
+
+.Filename preservation
+[example]
+====
+[source,sh]
+----
+$ ls input/
+My Diagram.ps
+Report-2024.eps
+file_v2.ps
+
+$ postsvg batch input/ output/
+
+$ ls output/
+My Diagram.svg
+Report-2024.svg
+file_v2.svg
+----
+
+Filenames (including spaces and special characters) are preserved.
+====
+
+=== Overwriting Behavior
+
+**Existing SVG files are overwritten without warning:**
+
+[source,sh]
+----
+$ ls output/
+diagram.svg  # Existing file
+
+$ postsvg batch input/ output/
+Found 1 file(s) to convert
+  ✓ input/diagram.ps → output/diagram.svg  # Overwrites existing
+
+# Previous diagram.svg is replaced
+----
+
+.Backup before batch conversion
+[example]
+====
+[source,sh]
+----
+# Backup existing SVG files
+if [ -d output/ ]; then
+  cp -r output/ output.backup/
+fi
+
+# Convert
+postsvg batch input/ output/
+
+# Verify results
+if [ $? -eq 0 ]; then
+  rm -rf output.backup/
+else
+  echo "Conversion had errors - backup preserved"
+fi
+----
+====
+
+== Performance
+
+=== Processing Speed
+
+Batch command is optimized for multiple files:
+
+**Advantages over multiple `convert` calls:**
+* Single gem load
+* Shared dependencies
+* Progress reporting
+* Batch error handling
+
+.Performance comparison
+[example]
+====
+[source,sh]
+----
+# Slower: Multiple convert commands
+$ time for f in *.ps; do postsvg convert "$f" "${f%.ps}.svg"; done
+real    0m15.234s
+
+# Faster: Single batch command
+$ time postsvg batch ./
+real    0m8.123s
+----
+
+Batch command is approximately **2x faster** for multiple files.
+====
+
+=== Memory Usage
+
+**Per-File Processing:**
+* Each file is processed independently
+* Memory is released between files
+* Suitable for large batches
+
+[source,sh]
+----
+# Memory-efficient even for many files
+postsvg batch directory_with_1000_files/
+----
+
+== Usage Patterns
+
+=== Pattern 1: Organize by Date
+
+[source,sh]
+----
+#!/bin/bash
+# convert-by-date.sh
+
+# Create dated output directory
+OUTPUT_DIR="svg_$(date +%Y%m%d)"
+mkdir -p "$OUTPUT_DIR"
+
+# Convert all files
+postsvg batch ps_files/ "$OUTPUT_DIR/"
+
+echo "Converted files saved to: $OUTPUT_DIR"
+----
+
+=== Pattern 2: Selective Conversion
+
+[source,sh]
+----
+#!/bin/bash
+# selective-convert.sh
+
+# Create temp directory with only desired files
+mkdir -p temp_input
+cp input/diagram*.ps temp_input/
+cp input/figure*.eps temp_input/
+
+# Convert selected files
+postsvg batch temp_input/ output/
+
+# Cleanup
+rm -rf temp_input
+----
+
+=== Pattern 3: Progress Logging
+
+[source,sh]
+----
+#!/bin/bash
+# batch-with-log.sh
+
+INPUT="$1"
+OUTPUT="$2"
+LOG="conversion_$(date +%Y%m%d_%H%M%S).log"
+
+{
+  echo "Batch Conversion Started: $(date)"
+  echo "Input: $INPUT"
+  echo "Output: $OUTPUT"
+  echo "---"
+
+  postsvg batch "$INPUT" "$OUTPUT"
+
+  echo "---"
+  echo "Completed: $(date)"
+} | tee "$LOG"
+
+echo "Log saved to: $LOG"
+----
+
+=== Pattern 4: CI/CD Batch Processing
+
+[source,yaml]
+----
+# .github/workflows/batch-convert.yml
+name: Batch Convert PS Files
+
+on:
+  push:
+    paths:
+      - 'graphics/**.ps'
+      - 'graphics/**.eps'
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install Postsvg
+        run: gem install postsvg
+
+      - name: Batch convert
+        run: postsvg batch graphics/ svg_output/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: svg-files
+          path: svg_output/
+----
+
+== Comparison with convert Command
+
+[cols="1,2,2"]
+|===
+| Feature | batch | convert
+
+| File count
+| Multiple (directory)
+| Single file
+
+| Output location
+| Directory-based
+| Specified or stdout
+
+| Error handling
+| Continue on failure
+| Exit on failure
+
+| Progress reporting
+| Shows each file
+| Success/error only
+
+| Performance
+| Optimized for bulk
+| Per-file overhead
+
+| Use case
+| Bulk operations
+| Individual files
+|===
+
+**When to use `batch`:**
+- ✅ Converting entire directories
+- ✅ Bulk migration projects
+- ✅ Automated workflows
+- ✅ Want progress tracking
+
+**When to use `convert`:**
+- ✅ Single file conversions
+- ✅ Need stdout output
+- ✅ Precise output control
+- ✅ Scripted individual files
+
+== Troubleshooting
+
+=== No Files Found
+
+**Problem:**
+[source]
+----
+No PS or EPS files found in input_dir/
+----
+
+**Solutions:**
+1. Check directory path is correct
+2. Verify files have `.ps` or `.eps` extension
+3. Ensure you have read permissions
+
+=== Some Files Failed
+
+**Problem:**
+[source]
+----
+  ✓ file1.ps → file1.svg
+  ✗ file2.ps: Conversion error
+  ✓ file3.ps → file3.svg
+----
+
+**Solutions:**
+1. Check individual failing files:
+   [source,sh]
+   ----
+   postsvg check file2.ps
+   ----
+
+2. Try converting individually with strict mode:
+   [source,sh]
+   ----
+   postsvg convert --strict file2.ps file2.svg
+   ----
+
+3. Review error message for specific issue
+
+=== Permission Denied
+
+**Problem:**
+[source]
+----
+Error: Cannot write to output_dir/
+----
+
+**Solutions:**
+[source,sh]
+----
+# Check permissions
+ls -ld output_dir/
+
+# Fix permissions
+chmod +w output_dir/
+
+# Or use different output directory
+postsvg batch input/ ~/output/
+----
+
+== Next Steps
+
+* Learn link:convert-command.adoc[convert command] for single files
+* Review link:check-command.adoc[check command] for validation
+* See link:../getting-started/common-workflows.adoc#workflow-2-batch-conversion-with-error-logging[Batch Workflows]
+* Check link:../api-reference/converter.adoc[Converter Class] for API equivalent
+
+== Bibliography
+
+* link:convert-command.adoc[convert Command Documentation]
+* link:check-command.adoc[check Command Documentation]
+* link:../getting-started/common-workflows.adoc[Common Workflows]
+* link:../getting-started/basic-usage.adoc[Basic Usage Guide]

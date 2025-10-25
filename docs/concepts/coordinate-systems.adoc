@@ -1,0 +1,836 @@
+= Coordinate Systems
+:page-nav_order: 3
+:page-parent: Core Concepts
+
+== Purpose
+
+This document explains the fundamental differences between PostScript and SVG coordinate systems and how Postsvg handles the coordinate transformation between them. Understanding coordinate systems is essential for debugging rendering issues and working with transformations.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../concepts.adoc[Core Concepts Overview]
+* link:graphics-state.adoc[Graphics State Management]
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:../architecture.adoc[Architecture Documentation]
+
+== Concepts
+
+**User Space**:: The coordinate system used in PostScript source code, before transformations are applied.
+
+**Device Space**:: The coordinate system of the output device (screen, printer, SVG canvas).
+
+**Current Transformation Matrix (CTM)**:: The matrix that transforms coordinates from user space to device space.
+
+**Origin**:: The (0, 0) point of a coordinate system, which differs between PostScript and SVG.
+
+**Y-Axis Orientation**:: The direction of the Y-axis, which is inverted between PostScript and SVG.
+
+== PostScript Coordinate System
+
+=== Origin and Orientation
+
+PostScript uses a **bottom-left origin** with **Y increasing upward**.
+
+.PostScript Coordinate System
+[source]
+----
+     Y
+     ↑
+     │
+ 100 │   ┌─────────┐
+     │   │ Content │
+  50 │   │         │
+     │   └─────────┘
+   0 └─────┴────┴────→ X
+     0    50   100
+----
+
+**Characteristics:**
+
+* Origin (0, 0) is at **bottom-left**
+* X-axis increases **left to right**
+* Y-axis increases **bottom to top**
+* Matches mathematical convention
+* Used by printers and traditional graphics systems
+
+=== Default Page Size
+
+PostScript typically uses these standard page sizes (at 72 DPI):
+
+**US Letter:**
+[source,postscript]
+----
+%%BoundingBox: 0 0 612 792
+% Width: 612 points (8.5 inches)
+% Height: 792 points (11 inches)
+----
+
+**A4:**
+[source,postscript]
+----
+%%BoundingBox: 0 0 595 842
+% Width: 595 points (210mm)
+% Height: 842 points (297mm)
+----
+
+=== Coordinate Example
+
+.PostScript Coordinates
+[example]
+====
+[source,postscript]
+----
+%!PS-Adobe-3.0
+%%BoundingBox: 0 0 200 200
+
+% Point at (50, 150) - near top-left
+50 150 moveto
+150 150 lineto
+stroke
+
+% Point at (50, 50) - near bottom-left
+50 50 moveto
+150 50 lineto
+stroke
+----
+
+Visual representation:
+
+[source]
+----
+    200 ┌───────────────┐
+        │               │
+    150 │ ●─────────●   │ ← (50,150) to (150,150)
+        │               │
+    100 │               │
+        │               │
+     50 │ ●─────────●   │ ← (50,50) to (150,50)
+        │               │
+      0 └───────────────┘
+        0      100     200
+----
+====
+
+== SVG Coordinate System
+
+=== Origin and Orientation
+
+SVG uses a **top-left origin** with **Y increasing downward**.
+
+.SVG Coordinate System
+[source]
+----
+   0 ┌─────┴────┴────→ X
+     │   ┌─────────┐   50   100
+     │   │ Content │
+  50 │   │         │
+     │   └─────────┘
+ 100 │
+     ↓
+     Y
+----
+
+**Characteristics:**
+
+* Origin (0, 0) is at **top-left**
+* X-axis increases **left to right**
+* Y-axis increases **top to bottom**
+* Matches screen/display convention
+* Used by web browsers and most graphics software
+
+=== ViewBox Attribute
+
+SVG uses the `viewBox` attribute to define the coordinate system:
+
+[source,xml]
+----
+<svg viewBox="min-x min-y width height">
+----
+
+.SVG ViewBox
+[example]
+====
+[source,xml]
+----
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="200" height="200"
+     viewBox="0 0 200 200">
+  <!-- Content here uses viewBox coordinates -->
+</svg>
+----
+
+* `viewBox="0 0 200 200"` means:
+  * min-x: 0
+  * min-y: 0
+  * width: 200
+  * height: 200
+====
+
+== The Coordinate System Problem
+
+The **fundamental challenge** in PostScript to SVG conversion is the Y-axis orientation difference.
+
+.Coordinate System Comparison
+[source]
+----
+PostScript (Y up)              SVG (Y down)
+
+    100 ┌─────────┐ 200           0 ┌─────────┐ 0
+        │    A    │                  │    D    │
+     50 │         │ 150             50 │         │ 50
+        │    B    │                  │    C    │
+      0 └─────────┘ 100            100 └─────────┘ 100
+        0       100                    0       100
+
+Point A in PostScript:          Point D in SVG:
+  PS: (50, 80)                    SVG: (50, 20)
+  Near top of page                Near top of page
+
+Point B in PostScript:          Point C in SVG:
+  PS: (50, 20)                    SVG: (50, 80)
+  Near bottom of page             Near bottom of page
+----
+
+**The Issue:**
+
+A point at PostScript coordinate `(x, y)` would appear at the **wrong vertical position** if used directly in SVG.
+
+* PS `(50, 20)` - near bottom
+* SVG `(50, 20)` - near top
+
+== Coordinate Transformation Strategy
+
+Postsvg uses a **transformation group** approach to handle the coordinate difference.
+
+=== The Transformation
+
+[source,xml]
+----
+<g transform="translate(0 height) scale(1 -1)">
+  <!-- PostScript graphics elements -->
+</g>
+----
+
+**This transformation:**
+
+1. **Translates** the origin to the bottom-left
+2. **Scales Y by -1** to flip the Y-axis
+
+.Transformation Breakdown
+[example]
+====
+Given a page height of 200:
+
+[source,xml]
+----
+<g transform="translate(0 200) scale(1 -1)">
+----
+
+**Step 1: Translate (0, 200)**
+
+[source]
+----
+Before:              After translate(0, 200):
+  0,0                      0,0
+   ┌────                    │
+   │                        │
+   │                        │  200
+   │                        ↓
+ 200                       ┌────  ← New origin
+                           │
+----
+
+**Step 2: Scale (1, -1)**
+
+[source]
+----
+After translate:     After scale(1, -1):
+
+ 200 ┌────              0  ┌────  ← Y increasing downward
+     │                     │         becomes upward
+     │                     │
+     ↓                     ↑
+     Y                   200
+----
+
+**Result:** Y-axis now increases upward, matching PostScript!
+====
+
+=== Why This Works
+
+The combined transformation `translate(0 h) scale(1 -1)`:
+
+[source]
+----
+Original SVG point: (x, y)
+After translate:    (x, y + h)
+After scale:        (x, h - y)
+
+This is equivalent to the PostScript coordinate!
+----
+
+**Example:**
+
+For height = 200:
+
+[source]
+----
+PS point (50, 150):
+  → SVG before transform: would be at (50, 150)
+  → SVG with transform: translate gives (50, 350)
+                        scale gives (50, 200-350) = (50, -150)
+                        Which renders at correct position!
+
+Actually, the math is:
+  PS (50, 150) → transform → SVG renders at visual position
+  that matches PS (50, 150) appearance
+----
+
+== User Space vs. Device Space
+
+=== User Space
+
+**User space** is the coordinate system used in PostScript source code. It's modified by transformation operators:
+
+[source,postscript]
+----
+% User space coordinates
+100 100 moveto      % In current user space
+200 200 lineto
+stroke
+
+% Transform user space
+2 2 scale           % User space units are now 2x larger
+100 100 moveto      % Actually 200,200 in original user space
+----
+
+=== Device Space
+
+**Device space** is the final coordinate system of the output device after all transformations are applied.
+
+.User Space to Device Space
+[source]
+----
+User Space              CTM              Device Space
+  (100, 100) ──────────────→  (transformed coordinates)
+              [a b c d e f]
+
+Example with CTM = [2 0 0 2 0 0] (scale 2x):
+  User (100, 100) → Device (200, 200)
+----
+
+=== The Current Transformation Matrix (CTM)
+
+The **CTM** is a 2×3 affine transformation matrix: `[a b c d e f]`
+
+.CTM Structure
+[source]
+----
+[ a  c  e ]     Matrix form:    [ a  c  e ]
+[ b  d  f ]                     [ b  d  f ]
+[ 0  0  1 ]                     [ 0  0  1 ]
+
+Point transformation:
+[ x' ]   [ a  c  e ]   [ x ]   [ ax + cy + e ]
+[ y' ] = [ b  d  f ] × [ y ] = [ bx + dy + f ]
+[ 1  ]   [ 0  0  1 ]   [ 1 ]   [      1      ]
+----
+
+**Components:**
+
+* `a, d` - **Scaling** factors
+* `b, c` - **Rotation/skew** factors
+* `e, f` - **Translation** offsets
+
+=== Identity CTM
+
+The **default CTM** is the identity matrix:
+
+[source,ruby]
+----
+[1, 0, 0, 1, 0, 0]
+----
+
+This maps user space 1:1 to device space (no transformation).
+
+== Transformation Operations
+
+=== Translation
+
+Shifts the origin without changing orientation or scale.
+
+[source,postscript]
+----
+tx ty translate
+----
+
+**Effect on CTM:**
+
+[source]
+----
+Before: [a b c d e f]
+After:  [a b c d (e+tx) (f+ty)]
+----
+
+.Translation Example
+[example]
+====
+[source,postscript]
+----
+% Move origin to (100, 100)
+100 100 translate
+
+% Now (0, 0) in user space = (100, 100) in original space
+0 0 moveto        % Actually at (100, 100)
+50 50 lineto      % Actually at (150, 150)
+stroke
+----
+
+Visual:
+
+[source]
+----
+Original:           After translate(100, 100):
+  0,0                      0,0
+   ┌────                    │
+   │                        │
+   │    100,100             │
+   │      ●                 │    ●  ← New 0,0
+   │                        │   ┌───
+                                │
+----
+====
+
+=== Scaling
+
+Changes the size of user space units.
+
+[source,postscript]
+----
+sx sy scale
+----
+
+**Effect on CTM:**
+
+[source]
+----
+Before: [a b c d e f]
+After:  [a×sx b×sx c×sy d×sy e f]
+----
+
+.Scaling Example
+[example]
+====
+[source,postscript]
+----
+% Double all coordinates
+2 2 scale
+
+% Drawing in user space
+0 0 50 50 rectfill    % Actually draws 100×100 rectangle
+----
+
+**Non-uniform scaling:**
+
+[source,postscript]
+----
+% Stretch horizontally, shrink vertically
+3 0.5 scale
+
+0 0 100 100 rectfill  % Draws 300×50 rectangle
+----
+====
+
+=== Rotation
+
+Rotates the coordinate system about the origin.
+
+[source,postscript]
+----
+angle rotate   % angle in degrees, counter-clockwise
+----
+
+**Effect on CTM:**
+
+[source]
+----
+Before: [a b c d e f]
+Rotation matrix R = [cos(θ) sin(θ) -sin(θ) cos(θ) 0 0]
+After: R × CTM
+----
+
+.Rotation Example
+[example]
+====
+[source,postscript]
+----
+% Rotate 45 degrees counter-clockwise
+45 rotate
+
+0 0 moveto
+100 0 lineto
+stroke
+% Draws line at 45° angle from origin
+----
+
+Visual:
+
+[source]
+----
+Before rotation:        After 45° rotation:
+  Y                       Y
+  ↑                       ↑  ╱
+  │                       │ ╱
+  │                       │╱
+  │─────→ X               ├────→ X
+  0                       0
+
+  100 0 lineto            Line now at 45° angle
+  ────→                   ╱
+                         ╱
+----
+====
+
+=== Rotation About a Point
+
+To rotate about a point other than origin:
+
+[source,postscript]
+----
+% Rotate 45° about point (100, 100)
+100 100 translate    % 1. Move point to origin
+45 rotate            % 2. Rotate
+-100 -100 translate  % 3. Move back
+----
+
+.Rotation About Point
+[example]
+====
+[source,postscript]
+----
+% Draw square
+0 0 100 100 rectfill
+
+% Rotate square 45° about its center (50, 50)
+gsave
+  50 50 translate
+  45 rotate
+  -50 -50 translate
+  0 0 100 100 rectfill
+grestore
+----
+
+Transformation sequence:
+
+[source]
+----
+Original:           Translate(50,50):   Rotate 45°:
+  ┌───┐               ┌───┐                ◇
+  │   │               │   │               ╱ ╲
+  │   │         →     │ + │        →    ╱   ╲
+  │   │               │   │              ╲   ╱
+  └───┘               └───┘               ╲ ╱
+                        ↑                  ◇
+                   Center now at origin
+----
+====
+
+== Matrix Operations in Postsvg
+
+=== Matrix Class
+
+The [`Matrix`](../../lib/postsvg/matrix.rb:6) class implements affine transformations:
+
+[source,ruby]
+----
+# Create identity matrix
+matrix = Matrix.new
+# => { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+
+# Create custom matrix
+matrix = Matrix.new(a: 2, d: 2)  # 2x scaling
+----
+
+=== Applying Transformations
+
+[source,ruby]
+----
+# Translation
+matrix = matrix.translate(10, 20)
+
+# Scaling
+matrix = matrix.scale(2, 3)
+
+# Rotation (in degrees)
+matrix = matrix.rotate(45)
+
+# Transform a point
+point = matrix.apply_point(100, 100)
+# => { x: transformed_x, y: transformed_y }
+----
+
+=== Matrix Multiplication
+
+Transformations compose via matrix multiplication:
+
+[source,ruby]
+----
+# Multiple transformations
+matrix = Matrix.new
+matrix = matrix.translate(10, 20)
+matrix = matrix.rotate(45)
+matrix = matrix.scale(2, 2)
+
+# Same as:
+m1 = Matrix.new.translate(10, 20)
+m2 = Matrix.new.rotate(45)
+m3 = Matrix.new.scale(2, 2)
+result = m1.multiply(m2).multiply(m3)
+----
+
+**Order matters!** `A × B ≠ B × A`
+
+.Transformation Order Example
+[example]
+====
+[source,ruby]
+----
+# Translate THEN scale
+m1 = Matrix.new.translate(10, 10).scale(2, 2)
+# (100, 100) → (110, 110) → (220, 220)
+
+# Scale THEN translate
+m2 = Matrix.new.scale(2, 2).translate(10, 10)
+# (100, 100) → (200, 200) → (210, 210)
+
+# Different results!
+----
+====
+
+=== Matrix Decomposition
+
+The `decompose` method extracts transformation components:
+
+[source,ruby]
+----
+matrix = Matrix.new
+matrix = matrix.translate(10, 20)
+matrix = matrix.rotate(45)
+matrix = matrix.scale(2, 3)
+
+components = matrix.decompose
+# => {
+#   translate: { x: 10, y: 20 },
+#   rotate: 45,
+#   scale: { x: 2, y: 3 },
+#   skew: { x: 0, y: 0 }
+# }
+----
+
+This is useful for generating SVG transform strings.
+
+== Coordinate Transformation in Practice
+
+=== PostScript to SVG Path Conversion
+
+When converting a PostScript path to SVG:
+
+.Path Coordinate Example
+[example]
+====
+**PostScript:**
+
+[source,postscript]
+----
+%%BoundingBox: 0 0 200 200
+newpath
+50 50 moveto        % Bottom-left area
+150 150 lineto      % Top-right area
+stroke
+----
+
+**Direct (Wrong) SVG:**
+
+[source,xml]
+----
+<svg viewBox="0 0 200 200">
+  <!-- Point (50,50) appears near TOP-left! -->
+  <!-- Point (150,150) appears near BOTTOM-right! -->
+  <path d="M 50 50 L 150 150" stroke="black"/>
+</svg>
+----
+
+**Correct SVG with transform:**
+
+[source,xml]
+----
+<svg viewBox="0 0 200 200">
+  <g transform="translate(0 200) scale(1 -1)">
+    <!-- Now (50,50) appears near bottom-left -->
+    <!-- And (150,150) appears near top-right -->
+    <path d="M 50 50 L 150 150" stroke="black"/>
+  </g>
+</svg>
+----
+====
+
+=== Handling the BoundingBox
+
+The BoundingBox comment defines the page dimensions:
+
+[source,postscript]
+----
+%%BoundingBox: llx lly urx ury
+----
+
+**Where:**
+
+* `llx, lly` - Lower-left corner coordinates
+* `urx, ury` - Upper-right corner coordinates
+
+.BoundingBox to ViewBox
+[example]
+====
+[source,postscript]
+----
+%%BoundingBox: 0 0 612 792
+% US Letter page
+----
+
+Converts to:
+
+[source,xml]
+----
+<svg viewBox="0 0 612 792"
+     width="612"
+     height="792">
+  <g transform="translate(0 792) scale(1 -1)">
+    <!-- Content -->
+  </g>
+</svg>
+----
+
+The transform height (792) comes from the BoundingBox height.
+====
+
+=== Non-Zero BoundingBox Origin
+
+Sometimes BoundingBox doesn't start at (0, 0):
+
+[source,postscript]
+----
+%%BoundingBox: 50 50 250 250
+% 200×200 area, offset by (50, 50)
+----
+
+.Offset BoundingBox Handling
+[example]
+====
+**Approach 1: Adjust viewBox**
+
+[source,xml]
+----
+<svg viewBox="50 50 200 200"
+     width="200"
+     height="200">
+  <g transform="translate(0 200) scale(1 -1)">
+    <!-- Content uses original coordinates -->
+  </g>
+</svg>
+----
+
+**Approach 2: Normalize to origin**
+
+[source,xml]
+----
+<svg viewBox="0 0 200 200"
+     width="200"
+     height="200">
+  <g transform="translate(-50 200) scale(1 -1) translate(0 -50)">
+    <!-- Content adjusted to start at (0, 0) -->
+  </g>
+</svg>
+----
+====
+
+== Common Coordinate Issues
+
+=== Issue 1: Upside-Down Content
+
+**Symptom:** Graphics appear flipped vertically
+
+**Cause:** Missing or incorrect Y-axis flip transformation
+
+**Solution:**
+
+[source,xml]
+----
+<!-- Wrong: No transform -->
+<svg><path d="..." /></svg>
+
+<!-- Correct: Y-axis flip -->
+<svg>
+  <g transform="translate(0 height) scale(1 -1)">
+    <path d="..." />
+  </g>
+</svg>
+----
+
+=== Issue 2: Content Outside ViewBox
+
+**Symptom:** Graphics not visible or clipped
+
+**Cause:** ViewBox doesn't match BoundingBox
+
+**Solution:**
+
+[source,ruby]
+----
+# Extract BoundingBox correctly
+bbox = {
+  llx: 0, lly: 0,
+  urx: 612, ury: 792,
+  width: 612, height: 792
+}
+
+# Use in SVG
+viewBox = "#{bbox[:llx]} #{bbox[:lly]} #{bbox[:width]} #{bbox[:height]}"
+----
+
+=== Issue 3: Transformation Order
+
+**Symptom:** Transformations produce unexpected results
+
+**Cause:** Wrong order of transformations
+
+**Example:**
+
+[source,postscript]
+----
+% Wrong order
+10 10 translate
+2 2 scale
+% (100,100) → (110,110) → (220,220)
+
+% Correct order for centering scale
+2 2 scale
+10 10 translate
+% (100,100) → (200,200) → (210,210)
+----
+
+== Next Steps
+
+* Review link:graphics-state.adoc[Graphics State Management] for CTM details
+* Explore link:path-operations.adoc[Path Operations] for coordinate usage
+* See link:svg-generation.adoc[SVG Generation] for output details
+* Check link:../architecture.adoc[Architecture] for implementation
+* Read link:conversion-pipeline.adoc[Conversion Pipeline] for the full process
+
+== Bibliography
+
+* link:graphics-state.adoc[Graphics State Management]
+* link:../architecture/graphics-state-model.adoc[Graphics State Implementation]
+* link:svg-generation.adoc[SVG Generation]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual] - Chapter 4: Graphics
+* link:https://www.w3.org/TR/SVG/coords.html[SVG Coordinate Systems Specification]

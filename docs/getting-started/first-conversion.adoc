@@ -1,0 +1,492 @@
+= First Conversion Tutorial
+:page-nav_order: 3
+:page-parent: Getting Started
+
+== Purpose
+
+This step-by-step tutorial guides you through your first PostScript to SVG conversion using Postsvg. You'll learn the complete workflow from creating a simple PostScript file to viewing the resulting SVG.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../getting-started.adoc[Getting Started Overview]
+* link:installation.adoc[Installation Guide]
+* link:basic-usage.adoc[Basic Usage]
+* link:../postscript/fundamentals.adoc[PostScript Fundamentals]
+
+== Concepts
+
+**PostScript**:: A page description language that describes how to draw vector graphics using commands.
+
+**Path**:: A sequence of connected lines and curves that define a shape.
+
+**Stroke**:: Drawing the outline of a path.
+
+**Fill**:: Filling the interior of a closed path with color.
+
+**BoundingBox**:: The rectangular area that contains all graphics in an EPS file.
+
+== Prerequisites
+
+Before starting this tutorial:
+
+* ✅ Postsvg installed (see link:installation.adoc[Installation Guide])
+* ✅ Text editor (any editor will work)
+* ✅ Terminal/command prompt access
+* ✅ Web browser for viewing SVG
+
+Verify installation:
+
+[source,sh]
+----
+postsvg version
+# Should output: postsvg version 0.1.0 (or similar)
+----
+
+== Step 1: Create a Simple PostScript File
+
+Let's create a PostScript file that draws a simple triangle.
+
+**1. Create a new file named `triangle.ps`:**
+
+[source,sh]
+----
+# Using your text editor, or create with echo:
+cat > triangle.ps << 'EOF'
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 200 200
+%%Title: Simple Triangle
+
+% Draw a triangle
+newpath
+100 50 moveto
+150 150 lineto
+50 150 lineto
+closepath
+
+% Set color to blue
+0 0 1 setrgbcolor
+
+% Fill the triangle
+fill
+
+showpage
+EOF
+----
+
+**2. Understanding the PostScript code:**
+
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0  <1>
+%%BoundingBox: 0 0 200 200  <2>
+%%Title: Simple Triangle  <3>
+
+newpath  <4>
+100 50 moveto  <5>
+150 150 lineto  <6>
+50 150 lineto  <7>
+closepath  <8>
+
+0 0 1 setrgbcolor  <9>
+fill  <10>
+
+showpage  <11>
+----
+<1> PostScript header identifying file type
+<2> Defines the drawing area (width: 200, height: 200)
+<3> Optional title comment
+<4> Initialize a new path
+<5> Move to starting point (100, 50)
+<6> Draw line to (150, 150)
+<7> Draw line to (50, 150)
+<8> Close the path back to start
+<9> Set color to blue (R=0, G=0, B=1)
+<10> Fill the closed path with current color
+<11> End the page
+
+== Step 2: Convert to SVG
+
+Now let's convert the PostScript file to SVG.
+
+**Using the command line:**
+
+[source,sh]
+----
+postsvg convert triangle.ps triangle.svg
+----
+
+**Expected output:**
+
+[source]
+----
+Successfully converted triangle.ps to triangle.svg
+----
+
+**What happened:**
+
+1. Postsvg read `triangle.ps`
+2. Parsed the PostScript commands
+3. Interpreted the drawing operations
+4. Generated equivalent SVG markup
+5. Saved to `triangle.svg`
+
+== Step 3: View the Result
+
+**Open the SVG file in a web browser:**
+
+[source,sh]
+----
+# macOS
+open triangle.svg
+
+# Linux
+xdg-open triangle.svg
+
+# Windows
+start triangle.svg
+----
+
+**Or view the SVG code:**
+
+[source,sh]
+----
+cat triangle.svg
+----
+
+**Expected SVG output:**
+
+[source,xml]
+----
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="200" height="200"
+     viewBox="0 0 200 200">
+  <path d="M 100 150 L 150 50 L 50 50 Z"
+        fill="#0000ff"/>
+</svg>
+----
+
+**You should see:** A blue triangle in your browser!
+
+== Step 4: Experiment with Variations
+
+Now let's try some variations to understand how Postsvg works.
+
+=== Variation 1: Change the Color
+
+**Modify `triangle.ps` to use red:**
+
+[source,postscript]
+----
+% Change this line:
+0 0 1 setrgbcolor
+
+% To this (red):
+1 0 0 setrgbcolor
+----
+
+**Convert again:**
+
+[source,sh]
+----
+postsvg convert triangle.ps triangle-red.svg
+----
+
+**Result:** Red triangle!
+
+=== Variation 2: Add a Stroke
+
+**Modify to have both fill and stroke:**
+
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 200 200
+
+newpath
+100 50 moveto
+150 150 lineto
+50 150 lineto
+closepath
+
+% Fill with light blue
+0.7 0.9 1 setrgbcolor
+fill
+
+% Stroke with dark blue
+newpath
+100 50 moveto
+150 150 lineto
+50 150 lineto
+closepath
+
+0 0 0.5 setrgbcolor
+3 setlinewidth
+stroke
+
+showpage
+----
+
+**Convert and view:**
+
+[source,sh]
+----
+postsvg convert triangle.ps triangle-stroked.svg
+open triangle-stroked.svg
+----
+
+**Result:** Light blue triangle with dark blue border!
+
+=== Variation 3: Multiple Shapes
+
+**Create a file with multiple shapes:**
+
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 300 300
+
+% Triangle
+newpath
+50 50 moveto
+100 150 lineto
+0 150 lineto
+closepath
+1 0 0 setrgbcolor
+fill
+
+% Circle (approximated with curve)
+newpath
+200 100 50 0 360 arc
+0 1 0 setrgbcolor
+fill
+
+% Rectangle
+newpath
+50 200 moveto
+150 200 lineto
+150 280 lineto
+50 280 lineto
+closepath
+0 0 1 setrgbcolor
+fill
+
+showpage
+----
+
+**Convert:**
+
+[source,sh]
+----
+postsvg convert shapes.ps shapes.svg
+----
+
+**Result:** Red triangle, green circle, and blue rectangle!
+
+== Step 5: Validate Your PostScript
+
+Before converting complex files, validate them:
+
+[source,sh]
+----
+postsvg check triangle.ps
+----
+
+**Expected output:**
+
+[source]
+----
+✓ triangle.ps - Valid PostScript file
+  File type: EPS
+  Validation level: semantic
+  No errors found
+----
+
+**Try with a broken file:**
+
+[source,sh]
+----
+# Create a file with syntax error
+echo '%!PS-Adobe
+newpath
+moveto
+stroke' > broken.ps
+
+# Validate it
+postsvg check broken.ps
+----
+
+**Output:**
+
+[source]
+----
+✗ broken.ps - Semantic error: Stack underflow
+  File type: PostScript
+  Errors:
+    - Line ~3: moveto requires 2 arguments on stack
+----
+
+== Step 6: Using the Ruby API
+
+Let's do the same conversion using Ruby code.
+
+**Create `convert.rb`:**
+
+[source,ruby]
+----
+require 'postsvg'
+
+# PostScript content
+ps_content = <<~PS
+  %!PS-Adobe-3.0 EPSF-3.0
+  %%BoundingBox: 0 0 200 200
+
+  newpath
+  100 50 moveto
+  150 150 lineto
+  50 150 lineto
+  closepath
+
+  0 0 1 setrgbcolor
+  fill
+
+  showpage
+PS
+
+# Convert to SVG
+svg = Postsvg.convert(ps_content)
+
+# Save to file
+File.write('triangle-ruby.svg', svg)
+
+puts "Conversion complete!"
+puts "SVG length: #{svg.length} bytes"
+----
+
+**Run the script:**
+
+[source,sh]
+----
+ruby convert.rb
+----
+
+**Output:**
+
+[source]
+----
+Conversion complete!
+SVG length: 285 bytes
+----
+
+== Common Issues and Solutions
+
+=== Issue 1: Command Not Found
+
+**Problem:**
+[source]
+----
+bash: postsvg: command not found
+----
+
+**Solution:**
+[source,sh]
+----
+# Check if gem is installed
+gem list postsvg
+
+# If not installed
+gem install postsvg
+
+# If installed, add to PATH
+export PATH="$PATH:$(gem environment gemdir)/bin"
+----
+
+=== Issue 2: Invalid BoundingBox
+
+**Problem:**
+SVG appears at wrong size or position.
+
+**Solution:**
+Always include a valid BoundingBox comment:
+
+[source,postscript]
+----
+%%BoundingBox: llx lly urx ury
+
+# Example for 200x200 image:
+%%BoundingBox: 0 0 200 200
+----
+
+=== Issue 3: Empty SVG Output
+
+**Problem:**
+SVG file is created but shows nothing.
+
+**Solutions:**
+
+1. **Ensure paths are stroked or filled:**
+   [source,postscript]
+   ----
+   newpath
+   ... path commands ...
+   stroke  % or fill
+   ----
+
+2. **Check coordinates are within BoundingBox:**
+   [source,postscript]
+   ----
+   %%BoundingBox: 0 0 100 100
+   % Make sure points are between 0-100
+   ----
+
+3. **Validate the file:**
+   [source,sh]
+   ----
+   postsvg check --level=full yourfile.ps
+   ----
+
+== Next Steps
+
+Congratulations! You've successfully:
+
+* ✅ Created a PostScript file
+* ✅ Converted it to SVG
+* ✅ Viewed the result
+* ✅ Made variations
+* ✅ Validated files
+* ✅ Used both CLI and Ruby API
+
+**Continue learning:**
+
+* link:common-workflows.adoc[Common Workflows] - Real-world usage patterns
+* link:../postscript/fundamentals.adoc[PostScript Fundamentals] - Learn more PostScript
+* link:../cli-reference.adoc[CLI Reference] - All command options
+* link:../api-reference.adoc[API Reference] - Advanced Ruby usage
+* link:../troubleshooting.adoc[Troubleshooting] - Solve problems
+
+== Practice Exercises
+
+Try these exercises to reinforce your learning:
+
+**Exercise 1: Create a House**
+Draw a simple house using rectangles and triangles.
+
+**Exercise 2: Color Gradient Effect**
+Create multiple overlapping shapes with different colors.
+
+**Exercise 3: Geometric Pattern**
+Use loops (if you know PostScript) or repeated shapes to create a pattern.
+
+**Exercise 4: Text (Challenge)**
+Note: Text is not yet supported, but try to understand why when you attempt it!
+
+== Bibliography
+
+* link:installation.adoc[Installation Guide]
+* link:basic-usage.adoc[Basic Usage]
+* link:common-workflows.adoc[Common Workflows]
+* link:../postscript/fundamentals.adoc[PostScript Fundamentals]
+* link:https://www.adobe.com/products/postscript/pdfs/PLRM.pdf[PostScript Language Reference]

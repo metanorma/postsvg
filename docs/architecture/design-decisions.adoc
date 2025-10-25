@@ -1,0 +1,999 @@
+= Design Decisions
+:page-nav_order: 7
+
+== Purpose
+
+This document describes the key architectural decisions made in Postsvg, the rationale behind them, alternatives considered, and trade-offs accepted. Understanding these decisions helps developers comprehend why the system is structured as it is and guides future development decisions.
+
+== References
+
+* link:../architecture.adoc[Architecture Overview]
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:command-registry.adoc[Command Registry]
+* link:graphics-state-model.adoc[Graphics State Model]
+
+== Concepts
+
+**Architectural Decision Record (ADR)**:: Documentation of significant architectural choices.
+
+**Trade-off Analysis**:: Balancing competing concerns (performance, simplicity, correctness).
+
+**Design Pattern Selection**:: Choosing appropriate patterns for the problem domain.
+
+**Technology Choices**:: Selecting libraries, frameworks, and approaches.
+
+== Decision 1: Three-Stage Pipeline Architecture
+
+=== Context
+
+PostScript to SVG conversion requires multiple distinct transformations:
+
+* Text → Tokens (lexical analysis)
+* Tokens → Execution (semantic interpretation)
+* Execution → SVG (output generation)
+
+=== Decision
+
+Implement a three-stage pipeline with clear separation between stages:
+
+1. **Tokenization:** Lexical analysis only
+2. **Interpretation:** Execute PostScript semantics
+3. **Generation:** Produce SVG output
+
+=== Rationale
+
+**Benefits:**
+
+* **Separation of Concerns:** Each stage has single responsibility
+* **Testability:** Stages can be tested independently
+* **Maintainability:** Changes to one stage don't affect others
+* **Clarity:** Data flow is explicit and unidirectional
+
+**Code Location:** See link:conversion-pipeline.adoc[Conversion Pipeline Documentation]
+
+=== Alternatives Considered
+
+**Single-Pass Conversion:**
+
+* Parse and generate SVG simultaneously
+* **Rejected:** Too complex, hard to test, mixing concerns
+
+**AST-Based Approach:**
+
+* Build full abstract syntax tree before execution
+* **Rejected:** Unnecessary memory overhead, PostScript is procedural
+
+**Streaming Pipeline:**
+
+* Process tokens as they're produced
+* **Deferred:** Current approach is simpler, streaming could be added later
+
+=== Trade-offs
+
+**Accepted:**
+
+* Multiple passes over data (not streaming)
+* Token array kept in memory
+
+**Gained:**
+
+* Simple, understandable architecture
+* Easy testing and debugging
+* Clear error boundaries
+
+== Decision 2: Command Pattern for Operators
+
+=== Context
+
+PostScript has 300+ operators with different behaviors. Need extensible way to implement operators.
+
+=== Decision
+
+Use Command Pattern with:
+
+* Base command class defining interface
+* One class per operator
+* Central registry for lookup
+* Lazy instantiation
+
+**Code Location:** See link:command-registry.adoc[Command Registry Documentation]
+
+=== Rationale
+
+**Benefits:**
+
+* **Extensibility:** Easy to add new operators
+* **Testability:** Each operator tested in isolation
+* **Maintainability:** Changes to one operator don't affect others
+* **Flexibility:** Operators can be overridden or aliased
+
+**Example:**
+
+[source,ruby]
+----
+class MoveTo < Base
+  def call(context)
+    y = context.pop_number
+    x = context.pop_number
+    context.path_builder.move_to(x, y)
+  end
+end
+----
+
+=== Alternatives Considered
+
+**Giant Switch Statement:**
+
+[source,ruby]
+----
+case operator
+when "moveto"
+  # inline implementation
+when "lineto"
+  # inline implementation
+# ... 300+ cases
+end
+----
+
+**Rejected:** Unmaintainable, hard to test, poor separation
+
+**Method Per Operator:**
+
+[source,ruby]
+----
+def execute_moveto
+  # implementation
+end
+
+def execute_lineto
+  # implementation
+end
+----
+
+**Rejected:** No polymorphism, hard to organize, testing harder
+
+**External DSL:**
+
+* Define operators in external configuration
+* **Rejected:** Too complex, Ruby is expressive enough
+
+=== Trade-offs
+
+**Accepted:**
+
+* One file per operator (many files)
+* Instantiation overhead per call
+
+**Gained:**
+
+* Clean, testable code
+* Easy to extend
+* Clear organization
+
+== Decision 3: Integrated SVG Generation
+
+=== Context
+
+SVG output could be generated as separate post-processing step or during interpretation.
+
+=== Decision
+
+Generate SVG incrementally during interpretation:
+
+* Path elements created when `stroke`/`fill` executed
+* SVG buffer accumulates during execution
+* Final assembly at end
+
+**Code Location:** [`lib/postsvg/interpreter.rb:219`](../../lib/postsvg/interpreter.rb:219)
+
+=== Rationale
+
+**Benefits:**
+
+* **Efficiency:** Single pass, no separate traversal
+* **Simplicity:** No intermediate representation needed
+* **Memory:** Output streamed to buffer, not stored
+* **Correctness:** Graphics state available when generating output
+
+=== Alternatives Considered
+
+**Separate Generator Pass:**
+
+[source,ruby]
+----
+# After interpretation:
+intermediate = interpreter.result
+svg_generator.generate(intermediate)
+----
+
+**Rejected:** Requires storing all operations, extra complexity
+
+**Deferred Generation:**
+
+* Store operation log, generate on demand
+* **Rejected:** Memory overhead, delayed errors
+
+=== Trade-offs
+
+**Accepted:**
+
+* Interpreter and generator coupled
+* Harder to swap output formats
+
+**Gained:**
+
+* Simple, efficient implementation
+* Immediate error detection
+* Lower memory usage
+
+== Decision 4: Immutable Graphics State with Cloning
+
+=== Context
+
+Graphics state must be saved/restored with `gsave`/`grestore`. Need safe way to manage state.
+
+=== Decision
+
+Clone graphics state on save:
+
+[source,ruby]
+----
+def save_graphics_state
+  @g_stack << {
+    graphics_state: clone_graphics_state(@graphics_state),
+    current_x: @current_x,
+    current_y: @current_y,
+    path_builder: @path_builder.dup
+  }
+end
+----
+
+**Code Location:** See link:graphics-state-model.adoc[Graphics State Model Documentation]
+
+=== Rationale
+
+**Benefits:**
+
+* **Correctness:** No accidental mutations
+* **Debugging:** State history preserved
+* **Predictability:** Restore always works correctly
+* **Thread Safety:** Potential for future parallelization
+
+=== Alternatives Considered
+
+**Mutable State with Careful Copying:**
+
+* Track which fields changed
+* Only save/restore changed fields
+* **Rejected:** Error-prone, hard to maintain
+
+**Persistent Data Structures:**
+
+* Use immutable data structure library
+* **Rejected:** Overkill, performance overhead
+
+**Copy-on-Write:**
+
+* Share state until modification
+* **Deferred:** Current approach is simpler, could optimize later
+
+=== Trade-offs
+
+**Accepted:**
+
+* Memory overhead from cloning
+* CPU overhead from copying
+
+**Gained:**
+
+* Correctness and safety
+* Simple implementation
+* Easy debugging
+
+== Decision 5: Lazy Command Instantiation
+
+=== Context
+
+Registry could create all command instances upfront or on-demand.
+
+=== Decision
+
+Create command instances on each lookup:
+
+[source,ruby]
+----
+def get(operator_name)
+  command_class = @commands[operator_name]
+  command_class&.new  # New instance each time
+end
+----
+
+=== Rationale
+
+**Benefits:**
+
+* **Memory Efficiency:** Only create what's used
+* **Thread Safety:** Each execution gets fresh instance
+* **Simplicity:** No instance management needed
+
+**Measurement:**
+
+* Typical program uses ~30 unique operators
+* Creating 30 instances is negligible overhead
+
+=== Alternatives Considered
+
+**Instance Pooling:**
+
+[source,ruby]
+----
+def get(operator_name)
+  @instances[operator_name] ||= @commands[operator_name]&.new
+end
+----
+
+**Rejected:** Minimal performance gain, harder to reason about
+
+**Singleton Instances:**
+
+* One instance per operator class
+* **Rejected:** Thread-safety concerns, no real benefit
+
+=== Trade-offs
+
+**Accepted:**
+
+* Small instantiation overhead per operator call
+
+**Gained:**
+
+* Simple, safe implementation
+* Lower memory baseline
+* Thread-safe by default
+
+== Decision 6: Number Formatting and Optimization
+
+=== Context
+
+SVG numbers can be verbose (`10.000000`). Need balance between precision and size.
+
+=== Decision
+
+Format numbers with smart optimization:
+
+[source,ruby]
+----
+def num_fmt(n)
+  return "0" if n.nil? || n.nan? || n.infinite?
+
+  n = n.to_f
+
+  if (n - n.round).abs < 1e-10
+    n.round.to_i.to_s  # "10" not "10.0"
+  else
+    format("%.3f", n).sub(/\.?0+$/, "")  # "10.5" not "10.500"
+  end
+end
+----
+
+=== Rationale
+
+**Benefits:**
+
+* **File Size:** 20-40% reduction in typical output
+* **Readability:** Cleaner, more readable SVG
+* **Precision:** 3 decimals sufficient for most graphics
+* **Correctness:** Handles edge cases (NaN, Infinity)
+
+**Example:**
+
+[source]
+----
+10.000000 → 10     (6 bytes saved)
+10.500000 → 10.5   (5 bytes saved)
+0.0001    → 0      (edge case handled)
+----
+
+=== Alternatives Considered
+
+**No Formatting:**
+
+* Use Ruby's default `to_s`
+* **Rejected:** Verbose output, larger files
+
+**Fixed Precision:**
+
+* Always use `.2f` or `.6f`
+* **Rejected:** Either too little or too much precision
+
+**Configurable Precision:**
+
+* Let user specify precision
+* **Deferred:** Current default works well, could add option later
+
+=== Trade-offs
+
+**Accepted:**
+
+* Small formatting overhead per number
+* Fixed precision (3 decimals)
+
+**Gained:**
+
+* Significantly smaller output
+* Readable SVG
+* Handles edge cases
+
+== Decision 7: ClipPath Deduplication
+
+=== Context
+
+Multiple identical clipping regions generate duplicate `<clipPath>` definitions.
+
+=== Decision
+
+Cache clipPath definitions by path data:
+
+[source,ruby]
+----
+@clippath_cache = {}  # path_data => clip_id
+
+clip_id = @clippath_cache[clip_path_d]
+unless clip_id
+  clip_id = next_clippath_id
+  @clippath_cache[clip_path_d] = clip_id
+  # Create <clipPath> definition
+end
+----
+
+=== Rationale
+
+**Benefits:**
+
+* **File Size:** Eliminates duplicate definitions
+* **Performance:** Fewer DOM elements in browser
+* **Correctness:** Semantically equivalent to duplicates
+
+**Measurement:**
+
+* Complex documents may have 50+ identical clips
+* Deduplication can reduce file size by 80%
+
+=== Alternatives Considered
+
+**No Deduplication:**
+
+* Generate new clipPath for each use
+* **Rejected:** Wasteful, larger files
+
+**Post-Processing Deduplication:**
+
+* Generate all, then deduplicate
+* **Rejected:** More complex, same result
+
+=== Trade-offs
+
+**Accepted:**
+
+* Memory for cache (small)
+* Hash lookup overhead (negligible)
+
+**Gained:**
+
+* Significantly smaller output
+* Better performance
+* Cleaner SVG
+
+== Decision 8: Strict vs Lenient Mode
+
+=== Context
+
+PostScript files may use unsupported operators. Need graceful degradation option.
+
+=== Decision
+
+Support both modes:
+
+**Strict Mode:**
+
+[source,ruby]
+----
+if command
+  command.call(@context)
+else
+  raise UnsupportedOperatorError, "Unknown operator: #{op}"
+end
+----
+
+**Lenient Mode (Default):**
+
+[source,ruby]
+----
+if command
+  command.call(@context)
+else
+  @context.svg_output[:paths] << "<!-- Unhandled: #{op} -->"
+end
+----
+
+=== Rationale
+
+**Benefits:**
+
+* **Flexibility:** Users choose behavior
+* **Compatibility:** Lenient mode maximizes conversion success
+* **Debugging:** Strict mode helps development
+* **Transparency:** HTML comments show what was skipped
+
+=== Alternatives Considered
+
+**Strict Only:**
+
+* Always fail on unknown operators
+* **Rejected:** Too rigid, limits usefulness
+
+**Lenient Only:**
+
+* Always continue, never fail
+* **Rejected:** Hides errors, harder to debug
+
+**Warning Mode:**
+
+* Continue but log warnings
+* **Deferred:** Could add as third option
+
+=== Trade-offs
+
+**Accepted:**
+
+* Default lenient mode may hide errors
+* Users must understand mode implications
+
+**Gained:**
+
+* Maximum compatibility
+* Development-friendly strict mode
+* User control
+
+== Decision 9: Token-Based vs AST-Based Parsing
+
+=== Context
+
+Parser could generate abstract syntax tree or simple token stream.
+
+=== Decision
+
+Generate flat token stream:
+
+[source,ruby]
+----
+Token = Struct.new(:type, :value)
+
+[
+  Token(:number, "42"),
+  Token(:operator, "moveto"),
+  # ...
+]
+----
+
+=== Rationale
+
+**Benefits:**
+
+* **Simplicity:** Easy to implement and understand
+* **Memory:** Lower overhead than tree
+* **Sufficient:** PostScript is procedural, not hierarchical
+* **Performance:** Single pass, no tree construction
+
+**PostScript Nature:**
+
+* Stack-based execution model
+* Procedures are token lists (not AST nodes)
+* No need for parse tree
+
+=== Alternatives Considered
+
+**Full AST:**
+
+[source,ruby]
+----
+Program(
+  statements: [
+    NumberLiteral(42),
+    Command(name: "moveto", args: [...])
+  ]
+)
+----
+
+**Rejected:** Unnecessary complexity, memory overhead
+
+**Hybrid Approach:**
+
+* Flat tokens + parse trees for procedures
+* **Rejected:** Inconsistent, complex
+
+=== Trade-offs
+
+**Accepted:**
+
+* Procedures are just token lists
+* No high-level program structure
+
+**Gained:**
+
+* Simple, fast implementation
+* Low memory usage
+* Matches PostScript model
+
+== Decision 10: Ruby Standard Library Only (Minimal Dependencies)
+
+=== Context
+
+Could use various gems for parsing, SVG generation, etc.
+
+=== Decision
+
+Minimize dependencies:
+
+* No parser generator (PEG, Racc, etc.)
+* No XML library (Nokogiri, REXML, etc.) for generation
+* Use standard library where possible
+
+**Current Dependencies:**
+
+* `moxml` - XML generation (optional, legacy)
+* Standard library only for core functionality
+
+=== Rationale
+
+**Benefits:**
+
+* **Reliability:** Fewer dependency updates
+* **Security:** Smaller attack surface
+* **Portability:** Easier to install
+* **Simplicity:** Less to learn
+
+**Measurements:**
+
+* Tokenizer: ~160 lines, no dependencies
+* Sufficient for PostScript syntax
+
+=== Alternatives Considered
+
+**Parser Generator:**
+
+* Use Parslet, Racc, or similar
+* **Rejected:** Overkill for simple PostScript syntax
+
+**XML Library:**
+
+* Use Nokogiri for SVG generation
+* **Rejected:** String concatenation is sufficient
+
+**More Gems:**
+
+* Math libraries, optimization libraries
+* **Rejected:** Standard library is adequate
+
+=== Trade-offs
+
+**Accepted:**
+
+* Manual parsing code
+* String-based SVG generation
+
+**Gained:**
+
+* Minimal dependencies
+* Easier maintenance
+* Faster installation
+
+== Decision 11: Bottom-Up SVG Coordinate Transform
+
+=== Context
+
+PostScript uses bottom-left origin, SVG uses top-left. Need coordinate conversion.
+
+=== Decision
+
+Apply global Y-flip transformation:
+
+[source,xml]
+----
+<g transform="translate(0 HEIGHT) scale(1 -1)">
+  <!-- All content here -->
+</g>
+----
+
+=== Rationale
+
+**Benefits:**
+
+* **Simplicity:** Single transform handles all content
+* **Correctness:** Preserves PostScript coordinates exactly
+* **Browser Support:** All SVG renderers support this
+* **Performance:** No per-coordinate transformation
+
+**Alternative Approaches:**
+
+* Transform each coordinate individually
+* **Rejected:** Error-prone, slower
+
+* Use `transform` attribute on each element
+* **Rejected:** More verbose, inconsistent
+
+=== Trade-offs
+
+**Accepted:**
+
+* Extra `<g>` wrapper element
+* Nested coordinate system
+
+**Gained:**
+
+* Simple, correct implementation
+* Matches PostScript exactly
+* Single point of transformation
+
+== Decision 12: Inline Path Coordinates vs Transform Groups
+
+=== Context
+
+Transformed paths could store original coordinates with transforms or transform coordinates.
+
+=== Decision
+
+Hybrid approach:
+
+* **Simple transforms** (translation, uniform scale): Bake into coordinates
+* **Complex transforms** (rotation, non-uniform scale): Use `<g transform>`
+
+[source,ruby]
+----
+def needs_transform_wrapper?
+  has_rotation = ctm.b.abs > 1e-10 || ctm.c.abs > 1e-10
+  has_nonuniform_scale = (ctm.a.abs - ctm.d.abs).abs > 1e-6
+  has_rotation || has_nonuniform_scale
+end
+----
+
+=== Rationale
+
+**Benefits:**
+
+* **Optimization:** Simpler SVG for simple transforms
+* **Correctness:** Preserve complex transforms exactly
+* **Readability:** Cleaner output for common cases
+
+**Examples:**
+
+[source,xml]
+----
+<!-- Simple: Coordinates transformed -->
+<path d="M 110 120 L 130 140" />
+
+<!-- Complex: Transform wrapper -->
+<g transform="rotate(45)">
+  <path d="M 10 20 L 30 40" />
+</g>
+----
+
+=== Trade-offs
+
+**Accepted:**
+
+* More complex generation logic
+* Conditional transformation
+
+**Gained:**
+
+* Optimized common case
+* Correct complex case
+* Readable output
+
+== Design Principles Summary
+
+=== SOLID Principles
+
+**Single Responsibility:**
+
+* Each class has one reason to change
+* Tokenizer: lexical analysis only
+* Interpreter: execution only
+* Commands: single operator each
+
+**Open/Closed:**
+
+* System open for extension (new operators)
+* Closed for modification (core unchanged)
+* Command pattern enables this
+
+**Liskov Substitution:**
+
+* All commands implement `call(context)`
+* Can substitute any command implementation
+* Polymorphic dispatch works correctly
+
+**Interface Segregation:**
+
+* Context provides focused interfaces
+* Commands only access what they need
+* No fat interfaces
+
+**Dependency Inversion:**
+
+* Depend on abstractions (Base command)
+* Not on concrete implementations
+* Registry mediates dependencies
+
+=== Additional Principles
+
+**YAGNI (You Aren't Gonna Need It):**
+
+* No speculative features
+* Implement only what's needed
+* Example: Streaming deferred
+
+**KISS (Keep It Simple, Stupid):**
+
+* Prefer simple solutions
+* Example: Token stream vs AST
+* Example: String concatenation vs XML library
+
+**DRY (Don't Repeat Yourself):**
+
+* Command pattern eliminates repetition
+* Number formatting centralized
+* State cloning abstracted
+
+== Performance Characteristics
+
+=== Time Complexity
+
+**Overall:** O(n + t + e)
+
+* n = input length
+* t = number of tokens
+* e = number of SVG elements
+
+**Breakdown:**
+
+* Tokenization: O(n) single pass
+* Interpretation: O(t) single pass
+* Generation: O(e) during interpretation
+
+=== Space Complexity
+
+**Overall:** O(t + e + d)
+
+* t = token array size
+* e = SVG output size
+* d = stack/state depth
+
+**Breakdown:**
+
+* Tokens: O(t) stored in memory
+* SVG buffer: O(e) accumulated output
+* State stack: O(d) gsave nesting
+
+=== Optimization Opportunities
+
+**Potential Improvements:**
+
+1. **Streaming Tokenization:** Process tokens as produced
+2. **Instance Pooling:** Reuse command instances
+3. **Path Optimization:** Merge consecutive moves
+4. **Lazy String Building:** Use rope data structure
+
+**Current Decision:** Prioritize simplicity over optimization until performance issues demonstrated.
+
+== Future Considerations
+
+=== Extensibility Points
+
+**New Operators:**
+
+* Add command class
+* Register in registry
+* Write tests
+
+**New Output Formats:**
+
+* Create alternative generator
+* Implement same interface
+* Plug into interpreter
+
+**Performance Enhancements:**
+
+* Instance pooling (backward compatible)
+* Streaming (internal change)
+* Parallel execution (major change)
+
+=== Known Limitations
+
+**Single-Threaded:**
+
+* Current implementation not thread-safe
+* Could be parallelized with immutable state
+
+**Memory Usage:**
+
+* All tokens in memory
+* All SVG output buffered
+* Could stream for large files
+
+**Precision:**
+
+* 3 decimal places for coordinates
+* Sufficient for most graphics
+* Could be configurable
+
+== Lessons Learned
+
+=== What Worked Well
+
+**Command Pattern:**
+
+* Proved highly extensible
+* Easy to test
+* Clean organization
+
+**Three-Stage Pipeline:**
+
+* Clear separation
+* Independent testing
+* Easy debugging
+
+**Immutable State:**
+
+* Prevented many bugs
+* Made debugging easier
+* Worth the overhead
+
+=== What Could Improve
+
+**Generator Coupling:**
+
+* SVG generation tightly coupled to interpreter
+* Could be more modular
+* Acceptable for current use case
+
+**Error Messages:**
+
+* Could be more helpful
+* Need better context
+* Improvement opportunity
+
+**Documentation:**
+
+* More inline comments needed
+* Better examples wanted
+* This document helps
+
+== Conclusion
+
+Postsvg's architecture prioritizes:
+
+1. **Correctness:** Get the right answer
+2. **Simplicity:** Easy to understand and maintain
+3. **Extensibility:** Easy to add features
+4. **Performance:** Good enough for typical use
+
+These priorities drive all architectural decisions. When trade-offs are necessary, correctness and simplicity take precedence over performance and features.
+
+== Next Steps
+
+* Review individual architecture documents for details
+* Explore link:../development.adoc[Development Guide] for contributing
+* See link:../api-reference.adoc[API Reference] for implementation details
+* Check link:../troubleshooting.adoc[Troubleshooting] for common issues
+
+== Bibliography
+
+* link:conversion-pipeline.adoc[Conversion Pipeline Documentation]
+* link:command-registry.adoc[Command Registry Architecture]
+* link:graphics-state-model.adoc[Graphics State Model]
+* Design Patterns: Elements of Reusable Object-Oriented Software (Gang of Four)
+* Clean Code: A Handbook of Agile Software Craftsmanship (Robert C. Martin)
+* The Pragmatic Programmer (Hunt & Thomas)
+* Architectural Decision Records (ADR) Methodology

@@ -1,0 +1,388 @@
+= Postsvg Module
+:page-nav_order: 1
+:page-parent: API Reference
+
+== Purpose
+
+This document details the main [`Postsvg`](../../lib/postsvg.rb:10) module which provides the primary Ruby API for converting PostScript and EPS files to SVG format. The module offers simple, high-level methods for quick conversions.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:converter.adoc[Converter Class]
+* link:../getting-started/basic-usage.adoc[Basic Usage Guide]
+
+== Concepts
+
+**Module Method**:: A method defined at the module level that can be called directly without instantiating a class.
+
+**Convenience Method**:: A simplified interface that handles common use cases with minimal code.
+
+**BoundingBox**:: The rectangular area containing all graphics, defined by `%%BoundingBox` comment in PostScript files.
+
+== Module Overview
+
+The [`Postsvg`](../../lib/postsvg.rb:10) module provides two main convenience methods:
+
+* [`convert(ps_content)`](../../lib/postsvg.rb:13) - Convert PostScript string to SVG string
+* [`convert_file(input_path, output_path)`](../../lib/postsvg.rb:24) - Convert PostScript file to SVG file
+
+These methods are designed for simplicity and cover most common use cases.
+
+== Methods
+
+=== convert
+
+Convert PostScript content (as a string) to SVG format.
+
+**Syntax:**
+
+[source,ruby]
+----
+svg_string = Postsvg.convert(ps_content) <1>
+----
+<1> Returns SVG markup as a string
+
+**Where:**
+
+`ps_content`:: String containing PostScript or EPS content. Should include proper PostScript header and ideally a `%%BoundingBox` comment.
+
+**Returns:**
+String containing SVG markup (XML format)
+
+**Source:**
+[`lib/postsvg.rb:13-21`](../../lib/postsvg.rb:13)
+
+.Convert PostScript string to SVG
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+ps_content = <<~PS
+  %!PS-Adobe-3.0 EPSF-3.0
+  %%BoundingBox: 0 0 100 100
+  newpath
+  50 50 moveto
+  90 50 lineto
+  stroke
+PS
+
+svg = Postsvg.convert(ps_content)
+puts svg
+# Output: <?xml version="1.0"...><svg...><path.../></svg>
+----
+
+This converts the PostScript content directly to SVG without saving to disk.
+====
+
+.Handle conversion errors
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+ps_content = File.read('input.ps')
+
+begin
+  svg = Postsvg.convert(ps_content)
+  File.write('output.svg', svg)
+  puts "Conversion successful"
+rescue Postsvg::Error => e
+  puts "Conversion failed: #{e.message}"
+end
+----
+====
+
+**Implementation Details:**
+
+The `convert` method:
+1. Extracts BoundingBox from PostScript content
+2. Tokenizes the PostScript using [`Tokenizer`](../../lib/postsvg/tokenizer.rb:8)
+3. Creates an [`Interpreter`](../../lib/postsvg/interpreter.rb:9) instance
+4. Interprets tokens with the BoundingBox
+5. Returns generated SVG from the result
+
+=== convert_file
+
+Convert a PostScript file to an SVG file.
+
+**Syntax:**
+
+[source,ruby]
+----
+Postsvg.convert_file(input_path, output_path) <1>
+svg_content = Postsvg.convert_file(input_path) <2>
+----
+<1> Read input file, convert, and save to output file
+<2> Read input file, convert, and return SVG content (don't save)
+
+**Where:**
+
+`input_path`:: Path to input PostScript (`.ps`) or EPS (`.eps`) file
+
+`output_path`:: (Optional) Path where SVG file should be saved. If omitted, SVG content is returned without saving.
+
+**Returns:**
+* When `output_path` provided: SVG content string
+* When `output_path` omitted: SVG content string
+
+**Source:**
+[`lib/postsvg.rb:24-31`](../../lib/postsvg.rb:24)
+
+.Convert file and save
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Convert and save in one step
+Postsvg.convert_file('diagram.eps', 'diagram.svg')
+puts "Conversion complete"
+----
+====
+
+.Convert file without saving
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Get SVG content for further processing
+svg_content = Postsvg.convert_file('input.ps')
+
+# Modify or analyze content
+if svg_content.include?('<path')
+  puts "Contains path elements"
+end
+
+# Save later or send to user
+File.write('output.svg', svg_content)
+----
+====
+
+.Batch file conversion
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+Dir.glob('*.ps').each do |ps_file|
+  svg_file = ps_file.sub('.ps', '.svg')
+
+  begin
+    Postsvg.convert_file(ps_file, svg_file)
+    puts "✓ Converted #{ps_file}"
+  rescue Postsvg::Error => e
+    puts "✗ Failed #{ps_file}: #{e.message}"
+  end
+end
+----
+====
+
+**Implementation Details:**
+
+The `convert_file` method:
+1. Reads the input file content
+2. Calls `convert(ps_content)` to perform conversion
+3. Writes SVG to output file if `output_path` provided
+4. Returns SVG content
+
+== Error Handling
+
+Both methods can raise [`Postsvg::Error`](../../lib/postsvg/errors.rb:1) or its subclasses:
+
+**Error Types:**
+
+* `Postsvg::ParseError` - PostScript syntax errors
+* `Postsvg::ConversionError` - Conversion failures
+* `Postsvg::ValidationError` - Validation failures
+
+.Comprehensive error handling
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+def safe_convert(input_file, output_file)
+  ps_content = File.read(input_file)
+  svg = Postsvg.convert(ps_content)
+  File.write(output_file, svg)
+
+  { success: true, file: output_file }
+rescue Postsvg::ParseError => e
+  { success: false, error: "Parse error: #{e.message}" }
+rescue Postsvg::ConversionError => e
+  { success: false, error: "Conversion error: #{e.message}" }
+rescue Postsvg::Error => e
+  { success: false, error: "Postsvg error: #{e.message}" }
+rescue StandardError => e
+  { success: false, error: "Unexpected error: #{e.message}" }
+end
+
+result = safe_convert('input.ps', 'output.svg')
+puts result[:success] ? "Success!" : result[:error]
+----
+====
+
+== BoundingBox Handling
+
+Both methods extract the BoundingBox from PostScript content:
+
+**BoundingBox Format:**
+
+[source,postscript]
+----
+%%BoundingBox: llx lly urx ury
+----
+
+**Where:**
+
+* `llx` - Lower-left X coordinate
+* `lly` - Lower-left Y coordinate
+* `urx` - Upper-right X coordinate
+* `ury` - Upper-right Y coordinate
+
+**Default Behavior:**
+
+If no BoundingBox is found, Postsvg uses default dimensions:
+
+[source,ruby]
+----
+{
+  llx: 0,
+  lly: 0,
+  urx: 1920,
+  ury: 1080,
+  width: 1920,
+  height: 1080
+}
+----
+
+.Specify custom BoundingBox
+[example]
+====
+If your PostScript file lacks a BoundingBox, add one:
+
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 612 792
+% Rest of PostScript content...
+----
+
+Or use the link:converter.adoc[Converter class] for more control over BoundingBox handling.
+====
+
+== Performance Considerations
+
+**Memory Usage:**
+
+Both methods load entire file into memory:
+
+[source,ruby]
+----
+# Good for small files
+svg = Postsvg.convert(small_ps_content)
+
+# May use significant memory for large files
+svg = Postsvg.convert(large_ps_content)  # 10MB+ content
+----
+
+**Optimization Tips:**
+
+1. **Batch Processing:**
+   Process files sequentially with garbage collection:
+   [source,ruby]
+   ----
+   files.each do |file|
+     Postsvg.convert_file(file, file.sub('.ps', '.svg'))
+     GC.start  # Force garbage collection
+   end
+   ----
+
+2. **Stream Processing:**
+   For very large files, consider processing in chunks (if applicable).
+
+3. **Caching:**
+   Cache conversion results if converting same content multiple times.
+
+== Thread Safety
+
+**Not Thread-Safe:**
+
+The module methods are not thread-safe. Create separate instances for concurrent operations:
+
+.Incorrect - sharing conversion
+[source,ruby]
+----
+# Bad: parallel conversion with shared module methods
+threads = files.map do |file|
+  Thread.new { Postsvg.convert_file(file) }  # May conflict
+end
+----
+
+.Correct - isolated conversions
+[source,ruby]
+----
+# Good: each thread has isolated conversion
+threads = files.map do |file|
+  Thread.new do
+    # Each thread reads and converts independently
+    ps_content = File.read(file)
+    Postsvg.convert(ps_content)
+  end
+end
+----
+
+== Comparison with Converter Class
+
+**Use Module Methods When:**
+* ✅ Quick, simple conversions
+* ✅ Default settings are sufficient
+* ✅ No need for strict mode
+* ✅ Scripting or one-off conversions
+
+**Use link:converter.adoc[Converter Class] When:**
+* ✅ Need strict mode validation
+* ✅ Want more control over process
+* ✅ Building a service or application
+* ✅ Require custom error handling
+
+.Module method vs Converter class
+[example]
+====
+[source,ruby]
+----
+# Using module method (simple)
+svg = Postsvg.convert(ps_content)
+
+# Using Converter class (more control)
+converter = Postsvg::Converter.new(
+  ps_content,
+  strict_mode: true
+)
+svg = converter.convert
+----
+====
+
+== Next Steps
+
+* Learn about link:converter.adoc[Converter Class] for advanced options
+* Review link:interpreter.adoc[Interpreter Class] for execution details
+* See link:../getting-started/basic-usage.adoc[Basic Usage] for practical examples
+* Check link:../cli-reference.adoc[CLI Reference] for command-line usage
+
+== Bibliography
+
+* link:converter.adoc[Converter Class Documentation]
+* link:interpreter.adoc[Interpreter Class Documentation]
+* link:../getting-started/basic-usage.adoc[Basic Usage Guide]
+* link:https://rubygems.org/gems/postsvg[Postsvg on RubyGems]

@@ -1,0 +1,354 @@
+= Architecture
+:page-nav_order: 6
+
+== Purpose
+
+This section describes Postsvg's internal architecture, design patterns, and implementation details. Understanding the architecture helps developers contribute to Postsvg, extend its functionality, and troubleshoot complex issues.
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:concepts.adoc[Core Concepts]
+* link:api-reference.adoc[API Reference]
+* link:development.adoc[Development Guide]
+
+== Concepts
+
+**Three-Stage Pipeline**:: Postsvg uses a clean separation between parsing, interpretation, and generation.
+
+**Command Pattern**:: PostScript operators are implemented as command objects following the Command design pattern.
+
+**Stack-Based Execution**:: Postsvg implements PostScript's stack-based execution model.
+
+**State Management**:: Graphics state is managed through a stack of immutable state objects.
+
+**Registry Pattern**:: Commands are registered and looked up through a central registry.
+
+== Architecture Topics
+
+link:architecture/conversion-pipeline.adoc[**Conversion Pipeline**]::
+The three-stage architecture: tokenization/parsing, interpretation/execution, and SVG generation.
+
+link:architecture/parser-stage.adoc[**Parser Stage**]::
+Tokenization and parsing of PostScript syntax into executable tokens.
+
+link:architecture/interpreter-stage.adoc[**Interpreter Stage**]::
+Command execution, stack management, and graphics state manipulation.
+
+link:architecture/generator-stage.adoc[**Generator Stage**]::
+SVG generation from interpreted graphics operations.
+
+link:architecture/command-registry.adoc[**Command Registry**]::
+How PostScript operators are registered, looked up, and executed.
+
+link:architecture/graphics-state-model.adoc[**Graphics State Model**]::
+State management, transformation matrices, and the graphics state stack.
+
+link:architecture/design-decisions.adoc[**Design Decisions**]::
+Architectural choices, trade-offs, and rationale behind implementation decisions.
+
+== High-Level Architecture
+
+.Postsvg Architecture Overview
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                     Postsvg Module                          │
+│  - convert(ps_content) → svg                                │
+│  - convert_file(input, output) → svg                        │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Converter Class                          │
+│  - Initialize with PostScript content                       │
+│  - Extract BoundingBox                                      │
+│  - Coordinate conversion pipeline                           │
+└────┬──────────────────┬──────────────────┬──────────────────┘
+     │                  │                  │
+     ▼                  ▼                  ▼
+┌──────────┐    ┌──────────────┐   ┌─────────────┐
+│Tokenizer │───>│ Interpreter  │──>│SVG Generator│
+└──────────┘    └──────────────┘   └─────────────┘
+     │                  │                  │
+     │                  │                  │
+     ▼                  ▼                  ▼
+  Tokens         ExecutionContext    SVG Document
+                      │    │
+                      ▼    ▼
+              ┌────────┐ ┌──────────────┐
+              │ Stack  │ │GraphicsState │
+              └────────┘ └──────────────┘
+----
+
+== Component Responsibilities
+
+=== Postsvg Module
+
+**Location:** [`lib/postsvg.rb`](../lib/postsvg.rb:10)
+
+**Responsibilities:**
+* Provide simple API for quick conversions
+* Extract BoundingBox from PostScript header
+* Delegate to Converter for actual conversion
+
+**Methods:**
+* [`convert(ps_content)`](../lib/postsvg.rb:13) - Convert PostScript string to SVG
+* [`convert_file(input_path, output_path)`](../lib/postsvg.rb:24) - Convert file to SVG
+
+=== Converter Class
+
+**Location:** [`lib/postsvg/converter.rb`](../lib/postsvg/converter.rb:8)
+
+**Responsibilities:**
+* Orchestrate the conversion pipeline
+* Extract BoundingBox information
+* Configure strict mode
+* Coordinate Tokenizer, Interpreter, and Generator
+
+**Key Methods:**
+* [`initialize(ps_content, strict_mode:)`](../lib/postsvg/converter.rb:12) - Set up converter
+* [`convert`](../lib/postsvg/converter.rb:17) - Execute full conversion
+* `extract_bounding_box` - Parse BoundingBox comment
+
+=== Tokenizer Class
+
+**Location:** [`lib/postsvg/tokenizer.rb`](../lib/postsvg/tokenizer.rb:8)
+
+**Responsibilities:**
+* Lexical analysis of PostScript source
+* Break input into tokens (numbers, operators, strings, etc.)
+* Handle string and hex string parsing
+
+**Token Types:**
+* `:number` - Integer or float values
+* `:operator` - PostScript commands
+* `:name` - Named identifiers (starting with `/`)
+* `:string` - String literals
+* `:hex_string` - Hexadecimal strings
+* `:array_start`, `:array_end` - Array delimiters
+* `:proc_start`, `:proc_end` - Procedure delimiters
+
+=== Interpreter Class
+
+**Location:** [`lib/postsvg/interpreter.rb`](../lib/postsvg/interpreter.rb:9)
+
+**Responsibilities:**
+* Execute PostScript commands
+* Manage execution context
+* Parse arrays and procedures
+* Coordinate with ExecutionContext
+* Generate final SVG document
+
+**Key Methods:**
+* [`interpret(tokens, bounding_box)`](../lib/postsvg/interpreter.rb:20) - Main interpretation loop
+* `execute_operator` - Execute single operator
+* `parse_procedure` - Parse procedure tokens
+* `parse_array` - Parse array tokens
+* `generate_svg_document` - Create final SVG
+
+=== ExecutionContext Class
+
+**Location:** [`lib/postsvg/execution_context.rb`](../lib/postsvg/execution_context.rb:9)
+
+**Responsibilities:**
+* Maintain operand stack
+* Manage dictionary stack
+* Track graphics state
+* Manage graphics state stack
+* Generate SVG elements
+* Handle clipPath deduplication
+
+**Key Components:**
+* Operand stack for values
+* Dictionary stack for definitions
+* Graphics state for drawing parameters
+* Graphics state stack for `gsave`/`grestore`
+* ClipPath registry for optimization
+
+=== GraphicsState Class
+
+**Location:** [`lib/postsvg/graphics_state.rb`](../lib/postsvg/graphics_state.rb:5)
+
+**Responsibilities:**
+* Track current path
+* Manage colors (fill and stroke)
+* Store line attributes
+* Maintain transformation matrix
+* Handle path construction
+
+**State Components:**
+* Current path segments
+* Current point (x, y)
+* Fill and stroke colors
+* Line width, cap, join, dash pattern
+* Transformation matrix
+
+=== SvgGenerator Class
+
+**Location:** [`lib/postsvg/svg_generator.rb`](../lib/postsvg/svg_generator.rb:7)
+
+**Responsibilities:**
+* Build SVG document structure
+* Transform paths to SVG format
+* Apply coordinate transformations
+* Generate optimized output
+
+**Generation Steps:**
+1. Create SVG root element
+2. Set viewBox from BoundingBox
+3. Generate `<defs>` section
+4. Transform and output paths
+5. Optimize clipPath references
+
+=== Command Registry
+
+**Location:** [`lib/postsvg/commands/registry.rb`](../lib/postsvg/commands/registry.rb:1)
+
+**Responsibilities:**
+* Register all PostScript operators
+* Look up command implementations
+* Provide command execution interface
+
+**Command Categories:**
+* Path construction (moveto, lineto, curveto, etc.)
+* Painting (stroke, fill, clip, etc.)
+* Graphics state (gsave, grestore, setlinewidth, etc.)
+* Transformations (translate, scale, rotate, etc.)
+* Stack operations (dup, pop, exch, roll, etc.)
+* Arithmetic (add, sub, mul, div, etc.)
+* Control flow (if, ifelse, for, repeat, etc.)
+* Dictionary (dict, begin, end, def, etc.)
+
+=== Matrix Class
+
+**Location:** [`lib/postsvg/matrix.rb`](../lib/postsvg/matrix.rb:6)
+
+**Responsibilities:**
+* Represent 2D affine transformations
+* Perform matrix operations
+* Apply transformations to points
+* Convert to SVG transform strings
+
+**Operations:**
+* Multiply matrices
+* Translate, scale, rotate
+* Transform points
+* Invert transformations
+* Decompose into components
+
+== Design Patterns
+
+=== Command Pattern
+
+Each PostScript operator is implemented as a command class:
+
+[source,ruby]
+----
+module Postsvg
+  module Commands
+    class Moveto < Base
+      def execute(context)
+        y = context.pop_number
+        x = context.pop_number
+        context.graphics_state.moveto(x, y)
+      end
+    end
+  end
+end
+----
+
+**Benefits:**
+* Each operator is independently testable
+* Easy to add new operators
+* Clear separation of concerns
+* Supports operator overriding
+
+=== Registry Pattern
+
+Commands are registered centrally:
+
+[source,ruby]
+----
+Registry.register('moveto', Commands::Moveto.new)
+Registry.register('lineto', Commands::Lineto.new)
+# ...
+
+# Later, look up and execute
+command = Registry.lookup('moveto')
+command.execute(context)
+----
+
+=== State Pattern
+
+Graphics state is managed immutably:
+
+[source,ruby]
+----
+# Save state
+saved_state = graphics_state.dup
+state_stack.push(saved_state)
+
+# Modify state
+graphics_state.translate(10, 20)
+
+# Restore state
+graphics_state = state_stack.pop
+----
+
+=== Strategy Pattern
+
+Different output formats use strategy pattern:
+
+[source,ruby]
+----
+# Text reporter
+reporter = Reporters::TextReporter.new
+
+# JSON reporter
+reporter = Reporters::JsonReporter.new
+
+# Both use same interface
+reporter.report(validation_result)
+----
+
+## Data Flow
+
+.Complete Data Flow
+[source]
+----
+PostScript File
+      │
+      ▼
+  [Tokenizer]
+      │
+      ▼
+   Tokens[]
+      │
+      ▼
+ [Interpreter] ──────> [ExecutionContext]
+      │                      │
+      │                      ├─> Operand Stack
+      │                      ├─> Dictionary Stack
+      │                      ├─> Graphics State
+      │                      └─> SVG Output Buffer
+      │
+      ▼
+[SvgGenerator]
+      │
+      ▼
+  SVG Document
+----
+
+== Next Steps
+
+* Review link:architecture/conversion-pipeline.adoc[Conversion Pipeline] details
+* Explore link:architecture/command-registry.adoc[Command Registry] implementation
+* See link:development.adoc[Development Guide] for contributing
+* Check link:api-reference.adoc[API Reference] for class details
+
+== Bibliography
+
+* link:architecture/conversion-pipeline.adoc[Conversion Pipeline Documentation]
+* link:architecture/design-decisions.adoc[Design Decisions]
+* Design Patterns: Elements of Reusable Object-Oriented Software (Gang of Four)

@@ -1,0 +1,810 @@
+= Interpreter Class
+:page-nav_order: 3
+:page-parent: API Reference
+
+== Purpose
+
+The [`Interpreter`](../../lib/postsvg/interpreter.rb:9) class is the core execution engine that processes PostScript tokens and generates SVG output. It implements a stack-based interpreter using the Command Pattern to execute PostScript operators.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:converter.adoc[Converter Class]
+* link:execution-context.adoc[ExecutionContext Class]
+* link:../architecture.adoc[Architecture Overview]
+
+== Concepts
+
+**Stack-Based Interpreter**:: An execution model where operands are pushed onto a stack and operators pop operands, perform operations, and push results.
+
+**Command Pattern**:: A design pattern where operations are encapsulated as command objects that can be executed independently.
+
+**Token Stream**:: A sequence of parsed PostScript tokens (numbers, strings, operators, etc.) ready for interpretation.
+
+**Execution Context**:: The runtime state including operand stack, dictionary stack, and graphics state.
+
+**Operator Registry**:: A centralized collection of all supported PostScript operators mapped to their implementations.
+
+== Class Overview
+
+The [`Interpreter`](../../lib/postsvg/interpreter.rb:9) class is defined in [`lib/postsvg/interpreter.rb`](../../lib/postsvg/interpreter.rb:1).
+
+**Responsibilities:**
+
+* Execute PostScript token streams
+* Manage execution context and state
+* Dispatch operators to command implementations
+* Parse composite objects (procedures, arrays, dictionaries)
+* Generate complete SVG documents
+* Handle errors in strict and lenient modes
+
+**Dependencies:**
+
+* [`ExecutionContext`](../../lib/postsvg/execution_context.rb:9) - Runtime state management
+* [`Commands::Registry`](../../lib/postsvg/commands/registry.rb:1) - Operator command registry
+* [`Tokenizer`](../../lib/postsvg/tokenizer.rb:8) - Token generation (used by Converter)
+
+**Key Design Patterns:**
+
+* **Command Pattern** - Operators as executable commands
+* **Strategy Pattern** - Strict vs lenient error handling
+* **State Pattern** - Graphics state management via ExecutionContext
+
+== Class Methods
+
+=== new
+
+Create a new Interpreter instance.
+
+**Syntax:**
+
+[source,ruby]
+----
+interpreter = Postsvg::Interpreter.new(strict_mode: false) <1>
+----
+<1> Initialize interpreter with optional strict mode
+
+**Where:**
+
+`strict_mode`:: (Optional) Boolean enabling strict validation
+* `true` - Fail immediately on unknown operators or execution errors
+* `false` - Continue execution, inserting SVG comments for errors (default)
+
+**Returns:**
+
+New `Interpreter` instance ready to interpret tokens
+
+**Source:**
+
+[`lib/postsvg/interpreter.rb:12-18`](../../lib/postsvg/interpreter.rb:12)
+
+**Implementation Details:**
+
+The constructor initializes:
+
+* [`ExecutionContext`](execution-context.adoc) - Runtime state container
+* [`Commands::Registry`](../../lib/postsvg/commands/registry.rb:1) - Default operator registry
+* BoundingBox reference - Initially `nil`, set during interpretation
+* Strict mode flag - Controls error handling behavior
+
+.Create interpreter with default settings
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Create lenient interpreter (default)
+interpreter = Postsvg::Interpreter.new
+
+# The interpreter will:
+# - Ignore unknown operators (add comments)
+# - Continue on recoverable errors
+# - Generate SVG even with incomplete PostScript
+----
+====
+
+.Create strict interpreter
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Create strict interpreter
+interpreter = Postsvg::Interpreter.new(strict_mode: true)
+
+# The interpreter will:
+# - Raise errors on unknown operators
+# - Fail on execution errors
+# - Ensure complete PostScript support
+
+begin
+  result = interpreter.interpret(tokens, bbox)
+  puts "Strict interpretation successful"
+rescue Postsvg::UnsupportedOperatorError => e
+  puts "Unsupported: #{e.message}"
+rescue Postsvg::ConversionError => e
+  puts "Error: #{e.message}"
+end
+----
+====
+
+== Instance Methods
+
+=== interpret
+
+Execute a token stream and generate SVG output.
+
+**Syntax:**
+
+[source,ruby]
+----
+result = interpreter.interpret(tokens, bounding_box = nil) <1>
+----
+<1> Process tokens and return result hash
+
+**Where:**
+
+`tokens`:: Array of token objects from [`Tokenizer`](../../lib/postsvg/tokenizer.rb:8)
+* Each token has `type` and `value` attributes
+* Types: `"number"`, `"string"`, `"operator"`, `"brace"`, `"bracket"`, `"dict"`, etc.
+
+`bounding_box`:: (Optional) Hash defining page dimensions
+* `:llx` - Lower-left X coordinate
+* `:lly` - Lower-left Y coordinate
+* `:urx` - Upper-right X coordinate
+* `:ury` - Upper-right Y coordinate
+* `:width` - Page width (calculated if not provided)
+* `:height` - Page height (calculated if not provided)
+
+**Returns:**
+
+Hash containing:
+
+* `:svg` - Complete SVG document string
+* `:elements` - Array of SVG path and text elements
+* `:paths` - Array of SVG path elements
+* `:text` - Array of SVG text elements
+* `:defs` - Array of SVG definitions (gradients, patterns, etc.)
+
+**Raises:**
+
+* [`Postsvg::UnsupportedOperatorError`](../../lib/postsvg/errors.rb:1) - Unknown operator in strict mode
+* [`Postsvg::ConversionError`](../../lib/postsvg/errors.rb:1) - Execution error in strict mode
+* [`Postsvg::Error`](../../lib/postsvg/errors.rb:1) - Other Postsvg-specific errors
+
+**Source:**
+
+[`lib/postsvg/interpreter.rb:20-73`](../../lib/postsvg/interpreter.rb:20)
+
+.Basic interpretation
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Tokenize PostScript
+ps_content = <<~PS
+  %!PS-Adobe-3.0
+  %%BoundingBox: 0 0 100 100
+  newpath
+  50 50 moveto
+  90 50 lineto
+  stroke
+PS
+
+tokens = Postsvg::Tokenizer.tokenize(ps_content)
+bbox = { llx: 0, lly: 0, urx: 100, ury: 100, width: 100, height: 100 }
+
+# Interpret
+interpreter = Postsvg::Interpreter.new
+result = interpreter.interpret(tokens, bbox)
+
+# Access results
+puts result[:svg]              # Complete SVG document
+puts result[:paths].length     # Number of paths generated
+puts result[:text].length      # Number of text elements
+----
+====
+
+.Interpretation with error handling
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+def safe_interpret(tokens, bbox, strict: false)
+  interpreter = Postsvg::Interpreter.new(strict_mode: strict)
+  result = interpreter.interpret(tokens, bbox)
+
+  {
+    success: true,
+    svg: result[:svg],
+    elements: result[:elements].length,
+    paths: result[:paths].length,
+    text: result[:text].length
+  }
+rescue Postsvg::UnsupportedOperatorError => e
+  {
+    success: false,
+    error: "Unsupported operator: #{e.message}",
+    type: :unsupported_operator
+  }
+rescue Postsvg::ConversionError => e
+  {
+    success: false,
+    error: "Conversion error: #{e.message}",
+    type: :conversion_error
+  }
+end
+
+# Try strict interpretation first
+result = safe_interpret(tokens, bbox, strict: true)
+
+if result[:success]
+  puts "✓ Strict interpretation: #{result[:elements]} elements"
+else
+  puts "✗ Strict failed: #{result[:error]}"
+
+  # Fall back to lenient mode
+  result = safe_interpret(tokens, bbox, strict: false)
+  puts "→ Lenient mode: #{result[:success] ? 'Success' : 'Failed'}"
+end
+----
+====
+
+**Interpretation Process:**
+
+The `interpret` method processes tokens in sequence:
+
+1. **Number Tokens** - Pushed to operand stack (preserving int/float distinction)
+2. **String Tokens** - Pushed to operand stack as string values
+3. **Brace Tokens** `{...}` - Parsed as procedures and pushed as procedure objects
+4. **Bracket Tokens** `[...]` - Parsed as arrays and pushed to stack
+5. **Dict Tokens** `<<...>>` - Parsed as dictionaries and pushed to stack
+6. **Operator Tokens** - Dispatched to command implementations or dictionary lookups
+
+.Token processing example
+[example]
+====
+[source,ruby]
+----
+# PostScript: 10 20 add
+# Token stream: [number(10), number(20), operator(add)]
+
+# Execution steps:
+# 1. Push 10 onto stack       → Stack: [10]
+# 2. Push 20 onto stack       → Stack: [10, 20]
+# 3. Execute 'add' operator   → Stack: [30]
+#    - Pops 20 and 10
+#    - Adds them: 10 + 20 = 30
+#    - Pushes result: 30
+----
+====
+
+== Attributes
+
+=== strict_mode (read/write)
+
+Get or set the strict mode flag.
+
+**Syntax:**
+
+[source,ruby]
+----
+is_strict = interpreter.strict_mode <1>
+interpreter.strict_mode = true <2>
+----
+<1> Get current strict mode setting
+<2> Enable strict mode after initialization
+
+**Returns:**
+
+Boolean (`true` if strict mode enabled, `false` otherwise)
+
+**Source:**
+
+[`lib/postsvg/interpreter.rb:10`](../../lib/postsvg/interpreter.rb:10)
+
+.Toggle strict mode
+[example]
+====
+[source,ruby]
+----
+interpreter = Postsvg::Interpreter.new
+
+# Check initial setting
+puts "Strict: #{interpreter.strict_mode}"  # false
+
+# Try lenient interpretation
+begin
+  result = interpreter.interpret(tokens, bbox)
+  puts "Lenient success: #{result[:paths].length} paths"
+rescue => e
+  puts "Unexpected error: #{e.message}"
+end
+
+# Enable strict mode for validation
+interpreter.strict_mode = true
+
+begin
+  result = interpreter.interpret(tokens, bbox)
+  puts "Strict success: all operators supported"
+rescue Postsvg::UnsupportedOperatorError => e
+  puts "Missing support: #{e.message}"
+end
+----
+====
+
+== Token Processing
+
+=== Number Tokens
+
+Numbers are pushed to the stack preserving integer vs. float distinction.
+
+**Integer Detection:**
+
+[source,ruby]
+----
+# Integers: no decimal point or exponent
+10      # → 10 (Integer)
+-5      # → -5 (Integer)
+0       # → 0 (Integer)
+
+# Floats: has decimal point or exponent
+10.5    # → 10.5 (Float)
+3.0     # → 3.0 (Float)
+1e3     # → 1000.0 (Float)
+----
+
+.Number processing
+[example]
+====
+[source,ruby]
+----
+# PostScript uses both integers and floats
+# Interpreter preserves the distinction
+
+# Integer coordinates (common for simple shapes)
+# PostScript: 100 200 moveto
+# Result: Precise pixel-perfect positioning
+
+# Float coordinates (common for complex paths)
+# PostScript: 100.5 200.75 moveto
+# Result: Sub-pixel positioning for smooth curves
+----
+====
+
+=== Procedure Tokens
+
+Procedures (code blocks) are parsed and stored as procedure objects.
+
+**Syntax:**
+
+[source]
+----
+{ procedure_body } <1>
+----
+<1> Brace-delimited code block
+
+**Internal Representation:**
+
+[source,ruby]
+----
+{
+  type: "procedure",
+  body: [token1, token2, ...]  # Array of tokens in procedure
+}
+----
+
+.Procedure parsing
+[example]
+====
+[source,ruby]
+----
+# PostScript with procedure
+ps_code = <<~PS
+  /myproc {
+    100 100 moveto
+    200 100 lineto
+    stroke
+  } def
+
+  myproc  # Execute the procedure
+PS
+
+# The interpreter:
+# 1. Parses { ... } into procedure object
+# 2. Stores in dictionary as /myproc
+# 3. When 'myproc' is encountered, executes the tokens
+----
+====
+
+=== Array Tokens
+
+Arrays are parsed and pushed as Ruby arrays.
+
+**Syntax:**
+
+[source]
+----
+[ element1 element2 ... ] <1>
+----
+<1> Bracket-delimited array
+
+.Array processing
+[example]
+====
+[source,ruby]
+----
+# PostScript arrays
+# [ 1 2 3 ]           → [1, 2, 3]
+# [ /name1 /name2 ]   → ["name1", "name2"]
+# [ 1.5 2.5 3.5 ]     → [1.5, 2.5, 3.5]
+
+# Common use: transformation matrices
+# [1 0 0 1 10 20] concat  # Translation matrix
+----
+====
+
+=== Dictionary Tokens
+
+Dictionaries are parsed as Ruby hashes.
+
+**Syntax:**
+
+[source]
+----
+<< /key1 value1 /key2 value2 >> <1>
+----
+<1> Double-angle-bracket delimited dictionary
+
+.Dictionary processing
+[example]
+====
+[source,ruby]
+----
+# PostScript dictionary
+ps_dict = "<< /Type /Pattern /Width 100 /Height 200 >>"
+
+# Parsed as Ruby hash:
+# {
+#   "Type" => "Pattern",
+#   "Width" => 100,
+#   "Height" => 200
+# }
+----
+====
+
+== Operator Execution
+
+=== Operator Resolution
+
+The interpreter resolves operators in this order:
+
+1. **Dictionary Lookup** - Check if operator is defined in dictionary stack
+2. **Registry Lookup** - Check built-in command registry
+3. **Error Handling** - Strict mode raises error, lenient mode adds comment
+
+.Operator resolution
+[example]
+====
+[source,ruby]
+----
+# PostScript with custom operator
+ps_code = <<~PS
+  /myop { 2 mul } def  # Define custom operator
+  10 myop              # Execute: 10 * 2 = 20
+PS
+
+# Resolution process:
+# 1. 'myop' not in built-in registry
+# 2. Found in dictionary as procedure
+# 3. Procedure tokens are executed
+# 4. Result: 20 on stack
+----
+====
+
+=== Built-in Operators
+
+The interpreter supports extensive PostScript operator sets:
+
+**Graphics Operators:**
+* Path construction: `moveto`, `lineto`, `curveto`, `closepath`
+* Painting: `stroke`, `fill`, `clip`
+* Graphics state: `gsave`, `grestore`, `setlinewidth`
+
+**Stack Operators:**
+* Manipulation: `pop`, `dup`, `exch`, `roll`, `copy`
+* Inspection: `count`, `index`, `mark`
+
+**Arithmetic Operators:**
+* Basic: `add`, `sub`, `mul`, `div`, `mod`
+* Advanced: `sin`, `cos`, `atan`, `sqrt`, `exp`, `ln`
+
+**Control Operators:**
+* Flow: `if`, `ifelse`, `for`, `repeat`, `loop`
+* Execution: `exec`, `bind`, `load`
+
+For complete list, see [`Commands::Registry`](../../lib/postsvg/commands/registry.rb:1).
+
+== Error Handling Modes
+
+=== Strict Mode
+
+Fails immediately on any unknown operator or execution error.
+
+**Behavior:**
+
+[source,ruby]
+----
+# Raises Postsvg::UnsupportedOperatorError
+# or Postsvg::ConversionError
+----
+
+**Use Cases:**
+
+* Development and testing
+* Operator support validation
+* Quality assurance
+* Debugging
+
+.Strict mode error handling
+[example]
+====
+[source,ruby]
+----
+interpreter = Postsvg::Interpreter.new(strict_mode: true)
+
+begin
+  result = interpreter.interpret(tokens, bbox)
+  # All operators supported - safe to use
+rescue Postsvg::UnsupportedOperatorError => e
+  puts "Unsupported operator: #{e.message}"
+  # Example: "Unknown PostScript operator: shfill"
+rescue Postsvg::ConversionError => e
+  puts "Execution error: #{e.message}"
+  # Example: "Error executing operator 'moveto': insufficient operands"
+end
+----
+====
+
+=== Lenient Mode
+
+Continues execution, inserting SVG comments for errors.
+
+**Behavior:**
+
+[source,ruby]
+----
+# Unknown operator → <!-- Unhandled operator: name -->
+# Execution error  → <!-- Error executing op: message -->
+----
+
+**Use Cases:**
+
+* Production conversion of imperfect PostScript
+* Best-effort SVG generation
+* Handling legacy files
+* Preview generation
+
+.Lenient mode behavior
+[example]
+====
+[source,ruby]
+----
+interpreter = Postsvg::Interpreter.new(strict_mode: false)
+
+result = interpreter.interpret(tokens, bbox)
+
+# Result SVG may contain comments like:
+# <!-- Unhandled operator: customop -->
+# <!-- Error executing moveto: stack underflow -->
+
+# But conversion completes and returns valid SVG
+puts "Generated SVG with #{result[:paths].length} paths"
+
+# Inspect for warnings
+warnings = result[:svg].scan(/<!-- .* -->/)
+puts "Warnings: #{warnings.length}"
+----
+====
+
+== SVG Generation
+
+=== Document Structure
+
+The interpreter generates complete SVG documents:
+
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="llx lly width height"
+     width="width"
+     height="height">
+  <defs>
+    <!-- Patterns, gradients, clip paths -->
+  </defs>
+  <g transform="translate(0 height) scale(1 -1)">
+    <!-- Paths and text elements -->
+  </g>
+</svg>
+----
+
+**Coordinate System:**
+
+PostScript uses bottom-left origin, SVG uses top-left. The interpreter applies a transform to flip the Y-axis:
+
+[source,xml]
+----
+<g transform="translate(0 height) scale(1 -1)">
+----
+
+.SVG generation
+[example]
+====
+[source,ruby]
+----
+result = interpreter.interpret(tokens, bbox)
+
+# Complete SVG document
+svg_doc = result[:svg]
+
+# Individual components
+defs = result[:defs]          # Patterns, gradients
+paths = result[:paths]        # Path elements
+text = result[:text]          # Text elements
+elements = result[:elements]  # All elements (paths + text)
+
+puts "Generated:"
+puts "  Definitions: #{defs.length}"
+puts "  Paths: #{paths.length}"
+puts "  Text: #{text.length}"
+----
+====
+
+=== BoundingBox Handling
+
+If no bounding box is provided, defaults are used:
+
+[source,ruby]
+----
+{
+  llx: 0,
+  lly: 0,
+  urx: 612,
+  ury: 792,
+  width: 612,
+  height: 792
+}
+----
+
+This corresponds to a standard US Letter page (8.5" × 11" at 72 DPI).
+
+## Thread Safety
+
+The `Interpreter` class is **not thread-safe**. Each thread should have its own instance.
+
+.Correct multi-threaded usage
+[example]
+====
+[source,ruby]
+----
+# Bad: Sharing interpreter
+interpreter = Postsvg::Interpreter.new
+threads = 5.times.map do
+  Thread.new { interpreter.interpret(tokens, bbox) }  # NOT SAFE
+end
+
+# Good: Each thread creates own interpreter
+token_sets = load_token_sets()
+threads = token_sets.map do |tokens|
+  Thread.new do
+    interpreter = Postsvg::Interpreter.new
+    interpreter.interpret(tokens, bbox)
+  end
+end
+
+results = threads.map(&:value)
+----
+====
+
+== Performance Characteristics
+
+**Time Complexity:**
+
+* Token iteration: O(n) where n = token count
+* Operator dispatch: O(1) via hash lookup
+* Procedure execution: O(m) where m = procedure token count
+* Overall: O(n + m) linear in total tokens
+
+**Space Complexity:**
+
+* Stack depth: O(s) where s = max stack depth
+* Dictionary stack: O(d) where d = dictionary entries
+* Graphics state stack: O(g) where g = gsave/grestore nesting
+* Path data: O(p) where p = path complexity
+
+.Performance monitoring
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+require 'benchmark'
+
+tokens = Postsvg::Tokenizer.tokenize(ps_content)
+bbox = extract_bbox(ps_content)
+
+puts "Tokens: #{tokens.length}"
+
+time = Benchmark.measure do
+  interpreter = Postsvg::Interpreter.new
+  @result = interpreter.interpret(tokens, bbox)
+end
+
+puts "Interpretation time: #{'%.3f' % time.real}s"
+puts "Paths generated: #{@result[:paths].length}"
+puts "Throughput: #{(tokens.length / time.real).to_i} tokens/sec"
+----
+====
+
+== Advanced Usage
+
+=== Custom Operator Registry
+
+You can provide a custom registry for extending operator support:
+
+[source,ruby]
+----
+# Create custom registry
+registry = Postsvg::Commands::Registry.new
+
+# Add custom operators
+registry.register('myop', MyCustomCommand.new)
+
+# Create interpreter with custom registry
+interpreter = Postsvg::Interpreter.new
+interpreter.instance_variable_set(:@registry, registry)
+----
+
+=== Accessing Execution Context
+
+The execution context is accessible for advanced use cases:
+
+[source,ruby]
+----
+interpreter = Postsvg::Interpreter.new
+result = interpreter.interpret(tokens, bbox)
+
+# Access internal context (private, use with caution)
+context = interpreter.instance_variable_get(:@context)
+
+# Inspect final stack
+stack = context.stack
+puts "Final stack: #{stack.inspect}"
+
+# Inspect dictionaries
+dicts = context.dict_stack
+puts "Dictionary entries: #{dicts.last.keys.join(', ')}"
+----
+
+== Next Steps
+
+* Learn about link:execution-context.adoc[ExecutionContext] for state management
+* Review link:graphics-state.adoc[GraphicsState] for graphics state details
+* See link:converter.adoc[Converter Class] for high-level conversion API
+* Check link:../architecture.adoc[Architecture] for system design
+
+== Bibliography
+
+* link:converter.adoc[Converter Class Documentation]
+* link:execution-context.adoc[ExecutionContext Documentation]
+* link:graphics-state.adoc[GraphicsState Documentation]
+* link:../architecture.adoc[Architecture Overview]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual]

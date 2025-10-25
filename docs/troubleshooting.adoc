@@ -1,0 +1,486 @@
+= Troubleshooting
+:page-nav_order: 10
+
+== Purpose
+
+This guide helps you diagnose and resolve common issues when using Postsvg. If you can't find a solution here, check the link:faq.adoc[FAQ] or link:https://github.com/metanorma/postsvg/issues[create an issue].
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:faq.adoc[FAQ]
+* link:cli-reference.adoc[CLI Reference]
+* link:https://github.com/metanorma/postsvg/issues[Issue Tracker]
+
+== Common Issues
+
+=== Installation Problems
+
+==== Gem Installation Fails
+
+**Problem:**
+[source,sh]
+----
+$ gem install postsvg
+ERROR: Could not find a valid gem 'postsvg'
+----
+
+**Solutions:**
+
+1. **Check gem sources:**
+   [source,sh]
+   ----
+   gem sources --list
+   # Should include https://rubygems.org
+   ----
+
+2. **Update RubyGems:**
+   [source,sh]
+   ----
+   gem update --system
+   ----
+
+3. **Install specific version:**
+   [source,sh]
+   ----
+   gem install postsvg -v '0.1.0'
+   ----
+
+==== Command Not Found
+
+**Problem:**
+[source,sh]
+----
+$ postsvg version
+bash: postsvg: command not found
+----
+
+**Solutions:**
+
+1. **Check gem bin directory:**
+   [source,sh]
+   ----
+   gem environment
+   # Look for GEM PATHS and EXECUTABLE DIRECTORY
+   ----
+
+2. **Add to PATH:**
+   [source,sh]
+   ----
+   export PATH="$PATH:$(gem environment gemdir)/bin"
+   # Add to ~/.bashrc or ~/.zshrc for persistence
+   ----
+
+3. **Use bundle exec:**
+   [source,sh]
+   ----
+   bundle exec postsvg version
+   ----
+
+==== Permission Denied
+
+**Problem:**
+[source,sh]
+----
+$ gem install postsvg
+ERROR: While executing gem ... (Errno::EACCES)
+Permission denied
+----
+
+**Solutions:**
+
+1. **Use user install:**
+   [source,sh]
+   ----
+   gem install --user-install postsvg
+   ----
+
+2. **Use bundler:**
+   [source,sh]
+   ----
+   # Add to Gemfile
+   gem 'postsvg'
+
+   # Install
+   bundle install
+   ----
+
+3. **Fix gem directory permissions** (not recommended):
+   [source,sh]
+   ----
+   sudo gem install postsvg  # Use with caution
+   ----
+
+=== Conversion Errors
+
+==== Unknown Operator Error
+
+**Problem:**
+[source]
+----
+Conversion error: Unknown operator: complexoperator
+----
+
+**Diagnosis:**
+
+PostScript file contains operators not yet implemented in Postsvg.
+
+**Solutions:**
+
+1. **Disable strict mode** (for non-critical operators):
+   [source,ruby]
+   ----
+   converter = Postsvg::Converter.new(
+     ps_content,
+     strict_mode: false
+   )
+   ----
+
+2. **Check operator support:**
+   - Review link:postscript/operators/index.adoc[Operator Reference]
+   - See link:index.adoc#current-limitations[Current Limitations]
+
+3. **Request feature** or link:contributing.adoc[contribute implementation]:
+   - link:https://github.com/metanorma/postsvg/issues/new[Create feature request]
+
+==== Malformed BoundingBox
+
+**Problem:**
+[source]
+----
+Warning: Invalid BoundingBox, using defaults
+----
+
+**Diagnosis:**
+
+BoundingBox comment is missing or malformed.
+
+**Solutions:**
+
+1. **Add BoundingBox comment:**
+   [source,postscript]
+   ----
+   %!PS-Adobe-3.0 EPSF-3.0
+   %%BoundingBox: 0 0 612 792
+   ----
+
+2. **Accept default dimensions:**
+   - Postsvg uses 1920x1080 as fallback
+   - May result in incorrect scaling
+
+3. **Calculate BoundingBox manually:**
+   [source,sh]
+   ----
+   # Use Ghostscript to find BoundingBox
+   gs -dNOPAUSE -dBATCH -sDEVICE=bbox input.ps 2>&1 | grep BoundingBox
+   ----
+
+==== Empty or Corrupted Output
+
+**Problem:**
+Generated SVG is empty or displays incorrectly.
+
+**Diagnosis:**
+
+Possible causes:
+* Unsupported PostScript features
+* Path construction errors
+* Coordinate system issues
+
+**Solutions:**
+
+1. **Validate PostScript file:**
+   [source,sh]
+   ----
+   postsvg check --level=full document.ps
+   ----
+
+2. **Check SVG output:**
+   [source,sh]
+   ----
+   # View in browser
+   open output.svg
+
+   # Inspect SVG content
+   cat output.svg | grep '<path'
+   ----
+
+3. **Enable verbose logging** (if available in future version):
+   [source,ruby]
+   ----
+   Postsvg::Logger.level = :debug
+   svg = Postsvg.convert(ps_content)
+   ----
+
+=== Validation Errors
+
+==== Syntax Validation Fails
+
+**Problem:**
+[source]
+----
+✗ document.ps - Syntax error: Unmatched delimiter
+----
+
+**Solutions:**
+
+1. **Check delimiters:**
+   - Ensure all `[`, `{`, `(`, `<` have matching closers
+   - Common issue: missing `}` or `]`
+
+2. **Validate with different level:**
+   [source,sh]
+   ----
+   # Try syntax-only
+   postsvg check --level=syntax document.ps
+   ----
+
+3. **Check file encoding:**
+   [source,sh]
+   ----
+   file -I document.ps
+   # Should be: text/plain; charset=us-ascii
+   ----
+
+==== Semantic Validation Fails
+
+**Problem:**
+[source]
+----
+✗ document.ps - Semantic error: Stack underflow
+----
+
+**Solutions:**
+
+1. **Check stack operations:**
+   - Operators popping more values than available
+   - Missing operands for commands
+
+2. **Review PostScript code:**
+   [source,postscript]
+   ----
+   % Bad - stack underflow
+   add  % No values on stack
+
+   % Good
+   10 20 add  % Two values provided
+   ----
+
+3. **Test with simpler file:**
+   Create minimal test case to isolate issue
+
+=== Performance Issues
+
+==== Slow Conversion
+
+**Problem:**
+Conversion takes very long for large files.
+
+**Solutions:**
+
+1. **Profile the conversion:**
+   [source,ruby]
+   ----
+   require 'benchmark'
+
+   time = Benchmark.measure do
+     Postsvg.convert_file('large.ps', 'output.svg')
+   end
+   puts "Time: #{time.real}s"
+   ----
+
+2. **Batch processing:**
+   [source,ruby]
+   ----
+   # Process files sequentially, not all at once
+   Dir.glob('*.ps').each do |file|
+     Postsvg.convert_file(file, file.sub('.ps', '.svg'))
+     GC.start  # Force garbage collection
+   end
+   ----
+
+3. **Check file size:**
+   [source,sh]
+   ----
+   # If file > 10MB, may be slow
+   ls -lh large.ps
+   ----
+
+==== High Memory Usage
+
+**Problem:**
+Ruby process consumes excessive memory.
+
+**Solutions:**
+
+1. **Process in batches:**
+   [source,ruby]
+   ----
+   files.each_slice(10) do |batch|
+     batch.each { |f| Postsvg.convert_file(f) }
+     GC.start
+   end
+   ----
+
+2. **Stream processing** (not yet supported):
+   Currently Postsvg loads entire file into memory
+
+3. **Increase Ruby memory limit:**
+   [source,sh]
+   ----
+   RUBY_GC_HEAP_GROWTH_FACTOR=1.1 postsvg batch large_dir/
+   ----
+
+=== Output Quality Issues
+
+==== Colors Incorrect
+
+**Problem:**
+Output colors don't match original PostScript.
+
+**Diagnosis:**
+
+Possible causes:
+* CMYK color space (partial support)
+* Custom color spaces (not supported)
+* ICC profiles (not supported)
+
+**Solutions:**
+
+1. **Convert to RGB:**
+   Preprocess PostScript to use RGB colors only
+
+2. **Check color space:**
+   [source,postscript]
+   ----
+   % Supported
+   0.5 0.5 0.5 setrgbcolor
+   0.5 setgray
+
+   % Partially supported
+   0.5 0.3 0.1 0.0 setcmykcolor
+
+   % Not supported
+   [/Pattern /DeviceRGB] setcolorspace
+   ----
+
+==== Paths Distorted
+
+**Problem:**
+Shapes appear distorted or incorrect in SVG.
+
+**Solutions:**
+
+1. **Check coordinate transformation:**
+   [source,sh]
+   ----
+   # Verify BoundingBox is correct
+   grep BoundingBox input.ps
+   ----
+
+2. **Inspect transformation matrices:**
+   Look for unusual scale/rotate operations
+
+3. **Compare with reference:**
+   [source,sh]
+   ----
+   # Convert with Ghostscript for comparison
+   gs -dNOPAUSE -dBATCH -sDEVICE=svg -sOutputFile=ref.svg input.ps
+   ----
+
+==== Text Missing or Incorrect
+
+**Problem:**
+Text doesn't appear in SVG output.
+
+**Diagnosis:**
+
+Text operations are not yet fully supported. See link:index.adoc#current-limitations[Current Limitations].
+
+**Solutions:**
+
+1. **Convert text to outlines:**
+   Use external tool to convert text to paths before processing
+
+2. **Use Ghostscript for text-heavy files:**
+   [source,sh]
+   ----
+   gs -dNOPAUSE -dBATCH -sDEVICE=svg -sOutputFile=output.svg input.ps
+   ----
+
+== Debugging Techniques
+
+=== Enable Verbose Output
+
+[source,ruby]
+----
+# In Ruby code
+require 'postsvg'
+
+# Add debug output to identify issues
+converter = Postsvg::Converter.new(ps_content)
+puts "BoundingBox: #{converter.extract_bounding_box.inspect}"
+----
+
+=== Minimal Test Case
+
+Create minimal PostScript to isolate issue:
+
+[source,postscript]
+----
+%!PS-Adobe-3.0
+%%BoundingBox: 0 0 100 100
+newpath
+50 50 moveto
+90 50 lineto
+stroke
+showpage
+----
+
+=== Check Intermediate Steps
+
+[source,ruby]
+----
+# Test tokenization
+tokens = Postsvg::Tokenizer.tokenize(ps_content)
+puts "Tokens: #{tokens.inspect}"
+
+# Test interpretation
+interpreter = Postsvg::Interpreter.new
+result = interpreter.interpret(tokens, bounding_box)
+puts "SVG: #{result[:svg]}"
+----
+
+== Getting Help
+
+If troubleshooting doesn't resolve your issue:
+
+1. **Search existing issues:**
+   link:https://github.com/metanorma/postsvg/issues[GitHub Issues]
+
+2. **Create minimal reproducible example:**
+   - Simplest PostScript that shows the problem
+   - Expected vs actual output
+   - Error messages and logs
+
+3. **Report the issue:**
+   link:https://github.com/metanorma/postsvg/issues/new[Create New Issue]
+
+4. **Provide context:**
+   - Postsvg version: `postsvg version`
+   - Ruby version: `ruby -v`
+   - Operating system
+   - Complete error message
+
+== Next Steps
+
+* Check link:faq.adoc[FAQ] for common questions
+* Review link:validation.adoc[Validation System] for quality checks
+* See link:contributing.adoc[Contributing Guide] to report issues
+* Read link:development.adoc[Development Guide] to fix issues yourself
+
+== Bibliography
+
+* link:faq.adoc[Frequently Asked Questions]
+* link:validation.adoc[Validation System]
+* link:https://github.com/metanorma/postsvg/issues[GitHub Issues]

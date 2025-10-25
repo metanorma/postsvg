@@ -1,0 +1,1179 @@
+= Matrix Class
+:page-nav_order: 9
+:page-parent: API Reference
+
+== Purpose
+
+The [`Matrix`](../../lib/postsvg/matrix.rb:6) class implements affine transformation matrices for PostScript coordinate transformations. It provides methods for translation, scaling, rotation, skewing, and matrix composition following the PostScript transformation model.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:path-builder.adoc[PathBuilder Class]
+* link:graphics-state.adoc[GraphicsState Class]
+* link:interpreter.adoc[Interpreter Class]
+* link:../architecture.adoc[Architecture Overview]
+
+== Concepts
+
+**Affine Transformation**:: A geometric transformation that preserves points, straight lines, and planes. Affine transformations include translation, scaling, rotation, reflection, and shearing.
+
+**Transformation Matrix**:: A mathematical representation of affine transformations using a 3×3 matrix (simplified to 6 values in 2D).
+
+**Matrix Composition**:: Combining multiple transformations by multiplying their matrices to produce a single composite transformation.
+
+**PostScript Matrix Format**:: The 6-element array `[a b c d e f]` representing a transformation matrix where:
+* `[a c e]` is the first row
+* `[b d f]` is the second row
+* `[0 0 1]` is the implicit third row
+
+**Coordinate Space**:: The reference frame in which points are defined. Transformations convert points between different coordinate spaces.
+
+== Class Overview
+
+The [`Matrix`](../../lib/postsvg/matrix.rb:6) class is defined in [`lib/postsvg/matrix.rb`](../../lib/postsvg/matrix.rb:1).
+
+**Responsibilities:**
+
+* Represent 2D affine transformation matrices
+* Perform matrix multiplication for transformation composition
+* Apply transformations (translate, scale, rotate, skew)
+* Transform points from one coordinate system to another
+* Decompose matrices into component transformations
+* Invert matrices for reverse transformations
+* Detect identity matrices
+
+**Mathematical Foundation:**
+
+The matrix represents transformations using the form:
+
+```
+┌   ┐   ┌     ┐ ┌ ┐
+│ x'│   │ a c e│ │x│
+│ y'│ = │ b d f│ │y│
+│ 1 │   │ 0 0 1│ │1│
+└   ┘   └     ┘ └ ┘
+```
+
+Where:
+* `(x, y)` is the original point
+* `(x', y')` is the transformed point
+* `[a b c d e f]` are the matrix coefficients
+
+**Transformation Equations:**
+
+```
+x' = a*x + c*y + e
+y' = b*x + d*y + f
+```
+
+== Class Methods
+
+=== new
+
+Create a new Matrix instance.
+
+**Syntax:**
+
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new(
+  a: 1, b: 0, c: 0, d: 1, e: 0, f: 0
+) <1>
+----
+<1> Initialize matrix with optional coefficients (defaults to identity)
+
+**Where:**
+
+`a`:: (Optional) Horizontal scaling/rotation component (default: 1)
+
+`b`:: (Optional) Vertical skew/rotation component (default: 0)
+
+`c`:: (Optional) Horizontal skew/rotation component (default: 0)
+
+`d`:: (Optional) Vertical scaling/rotation component (default: 1)
+
+`e`:: (Optional) Horizontal translation component (default: 0)
+
+`f`:: (Optional) Vertical translation component (default: 0)
+
+**Returns:**
+
+New `Matrix` instance with specified coefficients
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:9-16`](../../lib/postsvg/matrix.rb:9)
+
+.Create identity matrix
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Identity matrix (no transformation)
+identity = Postsvg::Matrix.new
+# Represents: [1 0 0 1 0 0]
+
+puts identity.a  # → 1
+puts identity.b  # → 0
+puts identity.c  # → 0
+puts identity.d  # → 1
+puts identity.e  # → 0
+puts identity.f  # → 0
+----
+====
+
+.Create translation matrix
+[example]
+====
+[source,ruby]
+----
+# Translate by (50, 100)
+translate = Postsvg::Matrix.new(e: 50, f: 100)
+# Represents: [1 0 0 1 50 100]
+
+# Apply to point
+result = translate.apply_point(10, 20)
+puts "(#{result[:x]}, #{result[:y]})"  # → "(60, 120)"
+----
+====
+
+.Create scaling matrix
+[example]
+====
+[source,ruby]
+----
+# Scale by 2x horizontally, 3x vertically
+scale = Postsvg::Matrix.new(a: 2, d: 3)
+# Represents: [2 0 0 3 0 0]
+
+result = scale.apply_point(10, 20)
+puts "(#{result[:x]}, #{result[:y]})"  # → "(20, 60)"
+----
+====
+
+.Create custom matrix
+[example]
+====
+[source,ruby]
+----
+# Custom transformation matrix
+custom = Postsvg::Matrix.new(
+  a: 2.0,
+  b: 0.5,
+  c: -0.5,
+  d: 2.0,
+  e: 100,
+  f: 50
+)
+
+# This matrix combines:
+# - Scaling (a=2, d=2)
+# - Rotation/skew (b=0.5, c=-0.5)
+# - Translation (e=100, f=50)
+----
+====
+
+== Instance Methods
+
+=== multiply
+
+Multiply this matrix by another matrix (compose transformations).
+
+**Syntax:**
+
+[source,ruby]
+----
+result = matrix1.multiply(matrix2) <1>
+----
+<1> Compose transformations (matrix1 then matrix2)
+
+**Where:**
+
+`matrix2`:: Another `Matrix` instance to multiply with
+
+**Returns:**
+
+New `Matrix` instance representing the composed transformation
+
+**Mathematical Operation:**
+
+```
+Result = Matrix1 × Matrix2
+
+┌         ┐   ┌           ┐ ┌           ┐
+│ a' c' e'│   │ a₁ c₁ e₁ │ │ a₂ c₂ e₂ │
+│ b' d' f'│ = │ b₁ d₁ f₁ │ │ b₂ d₂ f₂ │
+│  0  0  1│   │  0  0  1 │ │  0  0  1 │
+└         ┘   └           ┘ └           ┘
+```
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:18-27`](../../lib/postsvg/matrix.rb:18)
+
+.Combine transformations
+[example]
+====
+[source,ruby]
+----
+# Translate then scale
+translate = Postsvg::Matrix.new(e: 50, f: 50)
+scale = Postsvg::Matrix.new(a: 2, d: 2)
+
+# Order matters! translate THEN scale
+combined = translate.multiply(scale)
+
+# Apply to point (10, 10)
+result = combined.apply_point(10, 10)
+puts "(#{result[:x]}, #{result[:y]})"
+# → "(120, 120)" = (10+50)*2, (10+50)*2
+----
+====
+
+.Order matters in matrix multiplication
+[example]
+====
+[source,ruby]
+----
+translate = Postsvg::Matrix.new(e: 50, f: 50)
+scale = Postsvg::Matrix.new(a: 2, d: 2)
+
+# Translate then scale
+t_then_s = translate.multiply(scale)
+result1 = t_then_s.apply_point(10, 10)
+puts "Translate→Scale: (#{result1[:x]}, #{result1[:y]})"
+# → "(120, 120)"
+
+# Scale then translate
+s_then_t = scale.multiply(translate)
+result2 = s_then_t.apply_point(10, 10)
+puts "Scale→Translate: (#{result2[:x]}, #{result2[:y]})"
+# → "(70, 70)" = 10*2+50, 10*2+50
+
+# Different results! Order matters
+----
+====
+
+=== translate
+
+Create a new matrix representing translation.
+
+**Syntax:**
+
+[source,ruby]
+----
+translated = matrix.translate(tx, ty) <1>
+----
+<1> Apply translation to this matrix
+
+**Where:**
+
+`tx`:: Horizontal translation distance (Float or Integer)
+
+`ty`:: Vertical translation distance (Float or Integer)
+
+**Returns:**
+
+New `Matrix` instance with translation applied
+
+**Effect:**
+
+Equivalent to multiplying by translation matrix `[1 0 0 1 tx ty]`
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:29-31`](../../lib/postsvg/matrix.rb:29)
+
+.Translate coordinates
+[example]
+====
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new
+translated = matrix.translate(100, 50)
+
+# Apply to origin
+result = translated.apply_point(0, 0)
+puts "(#{result[:x]}, #{result[:y]})"  # → "(100, 50)"
+----
+====
+
+.Chain translations
+[example]
+====
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new
+  .translate(50, 50)   # Move to (50, 50)
+  .translate(30, 20)   # Then move by (30, 20)
+
+result = matrix.apply_point(0, 0)
+puts "(#{result[:x]}, #{result[:y]})"  # → "(80, 70)"
+----
+====
+
+=== scale
+
+Create a new matrix representing scaling.
+
+**Syntax:**
+
+[source,ruby]
+----
+scaled = matrix.scale(sx, sy) <1>
+----
+<1> Apply scaling to this matrix
+
+**Where:**
+
+`sx`:: Horizontal scale factor (Float or Integer)
+
+`sy`:: Vertical scale factor (Float or Integer)
+
+**Returns:**
+
+New `Matrix` instance with scaling applied
+
+**Effect:**
+
+Equivalent to multiplying by scaling matrix `[sx 0 0 sy 0 0]`
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:33-35`](../../lib/postsvg/matrix.rb:33)
+
+.Scale uniformly
+[example]
+====
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new
+scaled = matrix.scale(2, 2)  # Double size
+
+result = scaled.apply_point(50, 50)
+puts "(#{result[:x]}, #{result[:y]})"  # → "(100, 100)"
+----
+====
+
+.Scale non-uniformly
+[example]
+====
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new
+stretched = matrix.scale(3, 1)  # 3x wide, same height
+
+result = stretched.apply_point(10, 20)
+puts "(#{result[:x]}, #{result[:y]})"  # → "(30, 20)"
+----
+====
+
+.Flip horizontally
+[example]
+====
+[source,ruby]
+----
+# Negative scale flips axis
+flipped = Postsvg::Matrix.new.scale(-1, 1)
+
+result = flipped.apply_point(50, 30)
+puts "(#{result[:x]}, #{result[:y]})"  # → "(-50, 30)"
+----
+====
+
+=== rotate
+
+Create a new matrix representing rotation.
+
+**Syntax:**
+
+[source,ruby]
+----
+rotated = matrix.rotate(degrees) <1>
+----
+<1> Apply rotation to this matrix
+
+**Where:**
+
+`degrees`:: Rotation angle in degrees (Float or Integer)
+* Positive: counter-clockwise rotation
+* Negative: clockwise rotation
+
+**Returns:**
+
+New `Matrix` instance with rotation applied
+
+**Effect:**
+
+Equivalent to multiplying by rotation matrix:
+```
+[cos(θ)  sin(θ)  0]
+[-sin(θ) cos(θ)  0]
+[0       0       1]
+```
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:37-45`](../../lib/postsvg/matrix.rb:37)
+
+.Rotate 90 degrees
+[example]
+====
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new
+rotated = matrix.rotate(90)  # 90° counter-clockwise
+
+result = rotated.apply_point(100, 0)
+# 100 units along x-axis rotates to y-axis
+puts "(#{result[:x].round(2)}, #{result[:y].round(2)})"
+# → "(0.0, 100.0)"
+----
+====
+
+.Rotate 45 degrees
+[example]
+====
+[source,ruby]
+----
+rotated = Postsvg::Matrix.new.rotate(45)
+
+result = rotated.apply_point(100, 0)
+# √2/2 * 100 ≈ 70.71
+puts "(#{result[:x].round(2)}, #{result[:y].round(2)})"
+# → "(70.71, 70.71)"
+----
+====
+
+.Clockwise rotation
+[example]
+====
+[source,ruby]
+----
+# Negative angle = clockwise
+clockwise = Postsvg::Matrix.new.rotate(-90)
+
+result = clockwise.apply_point(100, 0)
+puts "(#{result[:x].round(2)}, #{result[:y].round(2)})"
+# → "(0.0, -100.0)"
+----
+====
+
+=== skew_x
+
+Create a new matrix representing horizontal skew.
+
+**Syntax:**
+
+[source,ruby]
+----
+skewed = matrix.skew_x(angle) <1>
+----
+<1> Apply horizontal skew to this matrix
+
+**Where:**
+
+`angle`:: Skew angle in degrees (Float or Integer)
+
+**Returns:**
+
+New `Matrix` instance with horizontal skew applied
+
+**Effect:**
+
+Equivalent to multiplying by skew matrix `[1 0 tan(θ) 1 0 0]`
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:47-50`](../../lib/postsvg/matrix.rb:47)
+
+.Skew horizontally
+[example]
+====
+[source,ruby]
+----
+skewed = Postsvg::Matrix.new.skew_x(30)
+
+# Points at different y-values shift differently
+result1 = skewed.apply_point(0, 0)
+result2 = skewed.apply_point(0, 100)
+
+puts "At y=0: (#{result1[:x].round(2)}, #{result1[:y]})"
+# → "At y=0: (0.0, 0)"
+
+puts "At y=100: (#{result2[:x].round(2)}, #{result2[:y]})"
+# → "At y=100: (57.74, 100)" (shifted right)
+----
+====
+
+=== skew_y
+
+Create a new matrix representing vertical skew.
+
+**Syntax:**
+
+[source,ruby]
+----
+skewed = matrix.skew_y(angle) <1>
+----
+<1> Apply vertical skew to this matrix
+
+**Where:**
+
+`angle`:: Skew angle in degrees (Float or Integer)
+
+**Returns:**
+
+New `Matrix` instance with vertical skew applied
+
+**Effect:**
+
+Equivalent to multiplying by skew matrix `[1 tan(θ) 0 1 0 0]`
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:52-55`](../../lib/postsvg/matrix.rb:52)
+
+.Skew vertically
+[example]
+====
+[source,ruby]
+----
+skewed = Postsvg::Matrix.new.skew_y(30)
+
+# Points at different x-values shift differently
+result1 = skewed.apply_point(0, 0)
+result2 = skewed.apply_point(100, 0)
+
+puts "At x=0: (#{result1[:x]}, #{result1[:y].round(2)})"
+# → "At x=0: (0, 0.0)"
+
+puts "At x=100: (#{result2[:x]}, #{result2[:y].round(2)})"
+# → "At x=100: (100, 57.74)" (shifted up)
+----
+====
+
+=== to_transform_string
+
+Convert matrix to SVG transform string.
+
+**Syntax:**
+
+[source,ruby]
+----
+transform_str = matrix.to_transform_string <1>
+----
+<1> Generate SVG transform attribute value
+
+**Returns:**
+
+String in format `"matrix(a b c d e f)"`
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:57-59`](../../lib/postsvg/matrix.rb:57)
+
+.Generate SVG transform
+[example]
+====
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new
+  .translate(50, 100)
+  .rotate(45)
+  .scale(2, 2)
+
+transform = matrix.to_transform_string
+puts transform
+# → "matrix(1.414... 1.414... -1.414... 1.414... 50 100)"
+
+# Use in SVG
+svg = %Q{<g transform="#{transform}">...</g>}
+----
+====
+
+=== apply_point
+
+Transform a point using this matrix.
+
+**Syntax:**
+
+[source,ruby]
+----
+result = matrix.apply_point(x, y) <1>
+----
+<1> Apply transformation to point coordinates
+
+**Where:**
+
+`x`:: X-coordinate to transform (Float or Integer)
+
+`y`:: Y-coordinate to transform (Float or Integer)
+
+**Returns:**
+
+Hash containing transformed coordinates:
+* `:x` - Transformed x-coordinate
+* `:y` - Transformed y-coordinate
+
+**Transformation Formula:**
+
+```
+x' = a*x + c*y + e
+y' = b*x + d*y + f
+```
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:61-66`](../../lib/postsvg/matrix.rb:61)
+
+.Transform point
+[example]
+====
+[source,ruby]
+----
+# Translate by (100, 50)
+matrix = Postsvg::Matrix.new(e: 100, f: 50)
+
+result = matrix.apply_point(10, 20)
+puts "(#{result[:x]}, #{result[:y]})"  # → "(110, 70)"
+----
+====
+
+.Transform multiple points
+[example]
+====
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new
+  .translate(50, 50)
+  .rotate(90)
+  .scale(2, 2)
+
+points = [[0, 0], [10, 0], [10, 10], [0, 10]]
+
+transformed = points.map do |x, y|
+  result = matrix.apply_point(x, y)
+  [result[:x], result[:y]]
+end
+
+puts transformed.inspect
+# Points of square transformed to new position/orientation/size
+----
+====
+
+=== decompose
+
+Decompose matrix into component transformations.
+
+**Syntax:**
+
+[source,ruby]
+----
+components = matrix.decompose <1>
+----
+<1> Extract translation, scale, rotation, and skew
+
+**Returns:**
+
+Hash containing transformation components:
+* `:translate` - Hash with `:x` and `:y` translation
+* `:scale` - Hash with `:x` and `:y` scale factors
+* `:rotate` - Rotation angle in degrees
+* `:skew` - Hash with `:x` and `:y` skew angles in degrees
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:68-121`](../../lib/postsvg/matrix.rb:68)
+
+**Special Cases:**
+
+* **Singular matrix** (determinant ≈ 0): Returns identity-like values
+* **Degenerate matrix** (zero scale): Returns zero scale
+
+.Decompose simple transformations
+[example]
+====
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new
+  .translate(100, 50)
+  .rotate(45)
+  .scale(2, 3)
+
+components = matrix.decompose
+
+puts "Translation: (#{components[:translate][:x]}, #{components[:translate][:y]})"
+# → "Translation: (100, 50)"
+
+puts "Scale: (#{components[:scale][:x].round(2)}, #{components[:scale][:y].round(2)})"
+# → "Scale: (2.0, 3.0)"
+
+puts "Rotation: #{components[:rotate].round(2)}°"
+# → "Rotation: 45.0°"
+
+puts "Skew: (#{components[:skew][:x].round(2)}, #{components[:skew][:y].round(2)})"
+# → "Skew: (0.0, 0.0)"
+----
+====
+
+.Analyze unknown matrix
+[example]
+====
+[source,ruby]
+----
+# Matrix from external source
+unknown = Postsvg::Matrix.new(
+  a: 1.5, b: 0.5,
+  c: -0.5, d: 1.5,
+  e: 200, f: 100
+)
+
+components = unknown.decompose
+
+puts "This matrix performs:"
+puts "  - Translation: (#{components[:translate][:x]}, #{components[:translate][:y]})"
+puts "  - Scaling: #{components[:scale][:x].round(2)}x"
+puts "  - Rotation: #{components[:rotate].round(1)}°"
+----
+====
+
+=== invert
+
+Compute the inverse of this matrix.
+
+**Syntax:**
+
+[source,ruby]
+----
+inverse = matrix.invert <1>
+----
+<1> Get inverse transformation matrix
+
+**Returns:**
+
+New `Matrix` instance representing the inverse transformation, or identity matrix if original is singular
+
+**Mathematical Operation:**
+
+For matrix M, finds M⁻¹ such that M × M⁻¹ = I (identity)
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:123-138`](../../lib/postsvg/matrix.rb:123)
+
+**Edge Cases:**
+
+* **Singular matrix** (determinant = 0): Returns identity matrix
+* **Near-singular** (|det| < 1e-10): Returns identity matrix
+
+.Invert transformation
+[example]
+====
+[source,ruby]
+----
+# Apply transformation
+forward = Postsvg::Matrix.new
+  .translate(100, 50)
+  .rotate(30)
+  .scale(2, 2)
+
+# Compute inverse
+backward = forward.invert
+
+# Apply both transformations
+point = forward.apply_point(10, 20)
+original = backward.apply_point(point[:x], point[:y])
+
+puts "Original: (10, 20)"
+puts "Transformed: (#{point[:x].round(2)}, #{point[:y].round(2)})"
+puts "Back to original: (#{original[:x].round(2)}, #{original[:y].round(2)})"
+# → Should be close to (10, 20)
+----
+====
+
+.Undo transformations
+[example]
+====
+[source,ruby]
+----
+# User applies transformations
+user_transform = Postsvg::Matrix.new
+  .translate(150, 200)
+  .rotate(45)
+
+# Get inverse to undo
+undo = user_transform.invert
+
+# Apply and undo
+result1 = user_transform.apply_point(50, 50)
+result2 = undo.apply_point(result1[:x], result1[:y])
+
+puts "After transform: (#{result1[:x].round(2)}, #{result1[:y].round(2)})"
+puts "After undo: (#{result2[:x].round(2)}, #{result2[:y].round(2)})"
+# → Should return to (50, 50)
+----
+====
+
+=== identity?
+
+Check if this matrix is the identity matrix.
+
+**Syntax:**
+
+[source,ruby]
+----
+is_identity = matrix.identity? <1>
+----
+<1> Test if matrix performs no transformation
+
+**Returns:**
+
+Boolean:
+* `true` - Matrix is identity `[1 0 0 1 0 0]`
+* `false` - Matrix performs some transformation
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:140-142`](../../lib/postsvg/matrix.rb:140)
+
+.Check for identity
+[example]
+====
+[source,ruby]
+----
+identity = Postsvg::Matrix.new
+puts identity.identity?  # → true
+
+translated = Postsvg::Matrix.new(e: 10, f: 10)
+puts translated.identity?  # → false
+
+scaled = Postsvg::Matrix.new(a: 2, d: 2)
+puts scaled.identity?  # → false
+----
+====
+
+.Optimize transformations
+[example]
+====
+[source,ruby]
+----
+def apply_if_needed(matrix, point)
+  if matrix.identity?
+    # Skip transformation - no change needed
+    { x: point[0], y: point[1] }
+  else
+    matrix.apply_point(point[0], point[1])
+  end
+end
+
+# Usage
+no_op = Postsvg::Matrix.new
+transform = Postsvg::Matrix.new.scale(2, 2)
+
+apply_if_needed(no_op, [10, 20])       # Fast path: no transformation
+apply_if_needed(transform, [10, 20])   # Slow path: actual transformation
+----
+====
+
+== Attributes
+
+All matrix coefficients are publicly accessible via `attr_accessor`:
+
+=== a, b, c, d, e, f
+
+Direct access to matrix coefficients.
+
+**Syntax:**
+
+[source,ruby]
+----
+matrix.a = value  # Horizontal scale/rotation
+matrix.b = value  # Vertical skew/rotation
+matrix.c = value  # Horizontal skew/rotation
+matrix.d = value  # Vertical scale/rotation
+matrix.e = value  # Horizontal translation
+matrix.f = value  # Vertical translation
+----
+
+**Source:**
+
+[`lib/postsvg/matrix.rb:7`](../../lib/postsvg/matrix.rb:7)
+
+.Modify matrix coefficients
+[example]
+====
+[source,ruby]
+----
+matrix = Postsvg::Matrix.new
+
+# Set custom coefficients
+matrix.a = 2.0   # Scale x by 2
+matrix.d = 3.0   # Scale y by 3
+matrix.e = 50    # Translate x by 50
+matrix.f = 100   # Translate y by 100
+
+result = matrix.apply_point(10, 10)
+puts "(#{result[:x]}, #{result[:y]})"  # → "(70, 130)"
+# Calculation: (10*2 + 50, 10*3 + 100)
+----
+====
+
+== Usage Patterns
+
+=== Pattern 1: Chained Transformations
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Build complex transformation via chaining
+matrix = Postsvg::Matrix.new
+  .translate(200, 150)  # Move to center
+  .rotate(45)           # Rotate
+  .scale(2, 2)          # Scale up
+  .translate(-50, -50)  # Offset
+
+# Apply to points
+points = [[0, 0], [100, 0], [100, 100], [0, 100]]
+
+transformed_points = points.map do |x, y|
+  result = matrix.apply_point(x, y)
+  [result[:x], result[:y]]
+end
+----
+
+=== Pattern 2: Animation Interpolation
+
+[source,ruby]
+----
+require 'postsvg'
+
+def interpolate_matrices(m1, m2, t)
+  # Linear interpolation between two matrices
+  # t = 0.0 → m1, t = 1.0 → m2
+
+  Postsvg::Matrix.new(
+    a: m1.a + (m2.a - m1.a) * t,
+    b: m1.b + (m2.b - m1.b) * t,
+    c: m1.c + (m2.c - m1.c) * t,
+    d: m1.d + (m2.d - m1.d) * t,
+    e: m1.e + (m2.e - m1.e) * t,
+    f: m1.f + (m2.f - m1.f) * t
+  )
+end
+
+# Animate from identity to transformed
+start = Postsvg::Matrix.new
+end_matrix = Postsvg::Matrix.new.translate(100, 100).rotate(90)
+
+# Generate 10 frames
+frames = (0..10).map do |i|
+  t = i / 10.0
+  interpolate_matrices(start, end_matrix, t)
+end
+----
+
+=== Pattern 3: Coordinate System Conversion
+
+[source,ruby]
+----
+require 'postsvg'
+
+class CoordinateConverter
+  def initialize(source_bounds, target_bounds)
+    # source_bounds: {x, y, width, height}
+    # target_bounds: {x, y, width, height}
+
+    sx = target_bounds[:width].to_f / source_bounds[:width]
+    sy = target_bounds[:height].to_f / source_bounds[:height]
+
+    @transform = Postsvg::Matrix.new
+      .translate(-source_bounds[:x], -source_bounds[:y])
+      .scale(sx, sy)
+      .translate(target_bounds[:x], target_bounds[:y])
+  end
+
+  def convert(x, y)
+    @transform.apply_point(x, y)
+  end
+end
+
+# Convert from PostScript (0-612) to screen (0-800)
+converter = CoordinateConverter.new(
+  { x: 0, y: 0, width: 612, height: 792 },
+  { x: 0, y: 0, width: 800, height: 1000 }
+)
+
+screen_pos = converter.convert(306, 396)  # Center of page
+puts "(#{screen_pos[:x].round}, #{screen_pos[:y].round})"
+# → "(400, 500)" - Center of screen
+----
+
+=== Pattern 4: Transform Accumulator
+
+[source,ruby]
+----
+require 'postsvg'
+
+class TransformStack
+  def initialize
+    @stack = [Postsvg::Matrix.new]  # Start with identity
+  end
+
+  def push
+    @stack.push(@stack.last.dup)
+  end
+
+  def pop
+    @stack.pop if @stack.length > 1
+  end
+
+  def translate(tx, ty)
+    @stack[-1] = @stack.last.translate(tx, ty)
+  end
+
+  def rotate(degrees)
+    @stack[-1] = @stack.last.rotate(degrees)
+  end
+
+  def scale(sx, sy)
+    @stack[-1] = @stack.last.scale(sx, sy)
+  end
+
+  def current
+    @stack.last
+  end
+
+  def apply_point(x, y)
+    current.apply_point(x, y)
+  end
+end
+
+# Usage (similar to PostScript gsave/grestore)
+transforms = TransformStack.new
+
+transforms.translate(100, 100)
+transforms.push  # Save state
+  transforms.rotate(45)
+  transforms.scale(2, 2)
+  result1 = transforms.apply_point(10, 10)
+transforms.pop  # Restore state
+
+result2 = transforms.apply_point(10, 10)
+
+puts "With rotation/scale: (#{result1[:x].round(2)}, #{result1[:y].round(2)})"
+puts "After restore: (#{result2[:x].round(2)}, #{result2[:y].round(2)})"
+----
+
+== Thread Safety
+
+The `Matrix` class is **immutable in practice** - all transformation methods return NEW instances rather than modifying the original. This makes it thread-safe for reading, but shared mutable state (via direct attribute modification) is not thread-safe.
+
+.Thread-safe usage
+[example]
+====
+[source,ruby]
+----
+# Safe: Immutable transformation methods
+shared_matrix = Postsvg::Matrix.new
+
+threads = 10.times.map do
+  Thread.new do
+    # Each creates new matrices, doesn't modify shared_matrix
+    rotated = shared_matrix.rotate(45)
+    scaled = rotated.scale(2, 2)
+    scaled.apply_point(100, 100)
+  end
+end
+
+results = threads.map(&:value)
+
+# Unsafe: Direct attribute modification
+threads = 10.times.map do
+  Thread.new do
+    shared_matrix.a = rand(10)  # RACE CONDITION!
+  end
+end
+----
+====
+
+**Best Practices:**
+
+1. Treat matrices as immutable
+2. Use transformation methods (which return new instances)
+3. Avoid direct attribute modification in concurrent code
+4. Create new matrices per thread if needed
+
+== Performance Considerations
+
+**Time Complexity:**
+
+* Matrix creation: O(1)
+* Transformation methods: O(1) - creates new matrix
+* `apply_point`: O(1) - simple arithmetic
+* `multiply`: O(1) - 6 multiplications + 6 additions
+* `decompose`: O(1) - trigonometric calculations
+* `invert`: O(1) - determinant and coefficient calculations
+
+**Space Complexity:**
+
+* Each matrix: 6 floating-point numbers (~48 bytes)
+* Negligible memory overhead
+
+**Optimization Tips:**
+
+1. **Reuse matrices**: Store commonly used transformations
+2. **Compose once**: Combine multiple transformations into single matrix
+3. **Batch point transformations**: Apply same matrix to many points
+4. **Cache decomposition**: Expensive, compute once if needed multiple times
+
+.Performance example
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+require 'benchmark'
+
+# Create complex transformation once
+matrix = Postsvg::Matrix.new
+  .translate(100, 100)
+  .rotate(45)
+  .scale(2, 2)
+  .translate(-50, -50)
+
+points = 10_000.times.map { [rand(1000), rand(1000)] }
+
+# Fast: Single matrix, many points
+time = Benchmark.measure do
+  points.each do |x, y|
+    matrix.apply_point(x, y)
+  end
+end
+
+puts "Transformed #{points.length} points in #{'%.3f' % time.real}s"
+puts "Rate: #{(points.length / time.real).to_i} points/sec"
+----
+====
+
+== Next Steps
+
+* Learn about link:path-builder.adoc[PathBuilder] for using transforms with paths
+* Review link:graphics-state.adoc[GraphicsState] for transformation stack management
+* See link:interpreter.adoc[Interpreter] for PostScript transformation commands
+* Check link:../architecture.adoc[Architecture] for system design
+
+== Bibliography
+
+* link:path-builder.adoc[PathBuilder Documentation]
+* link:graphics-state.adoc[GraphicsState Documentation]
+* link:interpreter.adoc[Interpreter Documentation]
+* link:../architecture.adoc[Architecture Overview]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual]
+* link:https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform[MDN SVG Transform Reference]
+* link:https://en.wikipedia.org/wiki/Affine_transformation[Wikipedia: Affine Transformation]

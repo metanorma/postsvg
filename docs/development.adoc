@@ -1,0 +1,420 @@
+= Development Guide
+:page-nav_order: 8
+
+== Purpose
+
+This guide helps developers contribute to Postsvg, set up the development environment, run tests, and understand the development workflow.
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:architecture.adoc[Architecture Documentation]
+* link:contributing.adoc[Contributing Guide]
+* link:https://github.com/metanorma/postsvg[GitHub Repository]
+
+== Concepts
+
+**Development Environment**:: Local setup with Ruby, dependencies, and development tools.
+
+**Testing Framework**:: RSpec test suite with unit and integration tests.
+
+**Code Style**:: RuboCop configuration and Ruby style guidelines.
+
+**Contribution Workflow**:: Fork, branch, commit, test, and pull request process.
+
+== Development Topics
+
+link:development/setup.adoc[**Development Setup**]::
+Install dependencies, configure your development environment, and verify the installation.
+
+link:development/testing.adoc[**Testing Guide**]::
+Run tests, write new tests, and maintain test coverage.
+
+link:development/adding-operators.adoc[**Adding PostScript Operators**]::
+Step-by-step guide to implementing new PostScript operator support.
+
+link:development/code-style.adoc[**Code Style Guidelines**]::
+RuboCop configuration, naming conventions, and Ruby best practices.
+
+link:development/architecture-guidelines.adoc[**Architecture Guidelines**]::
+Design patterns, separation of concerns, and architectural principles.
+
+link:development/release-process.adoc[**Release Process**]::
+Version bumping, changelog updates, and publishing to RubyGems.
+
+== Quick Start
+
+=== Clone and Setup
+
+[source,sh]
+----
+# Clone repository
+git clone https://github.com/metanorma/postsvg.git
+cd postsvg
+
+# Install dependencies
+bundle install
+
+# Run tests
+bundle exec rspec
+
+# Run linter
+bundle exec rubocop
+
+# Run all checks
+bundle exec rake
+----
+
+=== Development Workflow
+
+[source,sh]
+----
+# 1. Create feature branch
+git checkout -b feature/my-new-operator
+
+# 2. Make changes
+# ... edit files ...
+
+# 3. Run tests
+bundle exec rspec
+
+# 4. Check code style
+bundle exec rubocop -A
+
+# 5. Commit changes
+git add .
+git commit -m "feat(operators): add my-new-operator support"
+
+# 6. Push and create PR
+git push origin feature/my-new-operator
+----
+
+== Running Tests
+
+=== Full Test Suite
+
+[source,sh]
+----
+# Run all tests
+bundle exec rspec
+
+# Run with documentation format
+bundle exec rspec --format documentation
+
+# Run specific test file
+bundle exec rspec spec/postsvg/converter_spec.rb
+
+# Run specific test
+bundle exec rspec spec/postsvg/converter_spec.rb:10
+----
+
+=== Core Tests Only
+
+[source,sh]
+----
+# Run only core tests (fast)
+bundle exec rspec spec/postsvg/execution_context_spec.rb \
+                   spec/postsvg/integration_spec.rb
+----
+
+=== Test Coverage
+
+[source,sh]
+----
+# Generate coverage report
+COVERAGE=true bundle exec rspec
+
+# View coverage report
+open coverage/index.html
+----
+
+## Code Style
+
+Postsvg follows the Ruby Style Guide with RuboCop enforcement:
+
+[source,sh]
+----
+# Check code style
+bundle exec rubocop
+
+# Auto-fix issues
+bundle exec rubocop -A
+
+# Auto-generate config for new cops
+bundle exec rubocop -A --auto-gen-config
+----
+
+**Key Style Rules:**
+* 2 spaces for indentation (no tabs)
+* Maximum line length: 80 characters
+* Use snake_case for methods and variables
+* Use CamelCase for classes and modules
+* Prefer `attr_reader`/`attr_accessor` over instance variables
+
+== Adding a New PostScript Operator
+
+.Implementing the `arc` operator
+[example]
+====
+**1. Create operator file:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/path/arc.rb
+module Postsvg
+  module Commands
+    module Path
+      class Arc < Base
+        def execute(context)
+          # Pop arguments from stack
+          angle2 = context.pop_number
+          angle1 = context.pop_number
+          radius = context.pop_number
+          y_center = context.pop_number
+          x_center = context.pop_number
+
+          # Implement arc drawing
+          context.graphics_state.arc(
+            x_center, y_center, radius,
+            angle1, angle2
+          )
+        end
+      end
+    end
+  end
+end
+----
+
+**2. Register operator:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/registry.rb
+module Postsvg
+  module Commands
+    module Registry
+      def self.register_path_commands
+        # ... existing commands ...
+        register('arc', Path::Arc.new)
+      end
+    end
+  end
+end
+----
+
+**3. Write tests:**
+
+[source,ruby]
+----
+# spec/postsvg/commands/path/arc_spec.rb
+require 'spec_helper'
+
+RSpec.describe Postsvg::Commands::Path::Arc do
+  let(:context) { Postsvg::ExecutionContext.new }
+  let(:command) { described_class.new }
+
+  it 'draws an arc' do
+    context.push(100)  # x_center
+    context.push(100)  # y_center
+    context.push(50)   # radius
+    context.push(0)    # angle1
+    context.push(90)   # angle2
+
+    command.execute(context)
+
+    expect(context.graphics_state.current_path).not_to be_empty
+  end
+end
+----
+
+**4. Document operator:**
+
+Add to `docs/postscript/operators/path-construction.adoc`
+====
+
+== Project Structure
+
+[source]
+----
+postsvg/
+├── lib/
+│   ├── postsvg.rb                   # Main module
+│   └── postsvg/
+│       ├── cli.rb                   # CLI implementation
+│       ├── converter.rb             # Converter class
+│       ├── interpreter.rb           # Interpreter class
+│       ├── tokenizer.rb             # Tokenizer class
+│       ├── execution_context.rb    # Execution context
+│       ├── graphics_state.rb       # Graphics state
+│       ├── svg_generator.rb        # SVG generator
+│       ├── path_builder.rb         # Path builder
+│       ├── matrix.rb               # Matrix operations
+│       ├── colors.rb               # Color utilities
+│       ├── errors.rb               # Error classes
+│       └── commands/               # PostScript operators
+│           ├── registry.rb         # Command registry
+│           ├── base.rb             # Base command class
+│           ├── path/               # Path commands
+│           ├── painting/           # Painting commands
+│           ├── graphics_state/     # State commands
+│           ├── transformation/     # Transform commands
+│           ├── stack/              # Stack commands
+│           ├── arithmetic/         # Math commands
+│           ├── control/            # Control flow
+│           └── dictionary/         # Dictionary commands
+├── spec/                           # Test files
+├── docs/                           # Documentation
+├── exe/                            # Executable
+└── Gemfile                         # Dependencies
+----
+
+== Development Dependencies
+
+[source,ruby]
+----
+# Gemfile (development dependencies)
+group :development, :test do
+  gem 'rspec'           # Testing framework
+  gem 'rubocop'         # Code linter
+  gem 'rake'            # Task runner
+  gem 'pry'             # Debugging (optional)
+  gem 'simplecov'       # Code coverage (optional)
+end
+----
+
+== Debugging Tips
+
+=== Using Pry
+
+[source,ruby]
+----
+require 'pry'
+
+def problematic_method
+  # ... code ...
+  binding.pry  # Debugger will stop here
+  # ... more code ...
+end
+----
+
+=== Verbose Output
+
+[source,ruby]
+----
+# Add debug output
+def execute(context)
+  puts "Stack: #{context.stack.inspect}"
+  # ... execution ...
+  puts "Result: #{result.inspect}"
+end
+----
+
+=== Test Isolation
+
+[source,ruby]
+----
+# Run single test with focus
+RSpec.describe 'MyFeature', :focus do
+  it 'works' do
+    # ...
+  end
+end
+----
+
+== Commit Message Guidelines
+
+Follow Conventional Commits:
+
+[source]
+----
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+----
+
+**Types:**
+* `feat`: New feature
+* `fix`: Bug fix
+* `docs`: Documentation changes
+* `style`: Code style changes (formatting)
+* `refactor`: Code refactoring
+* `test`: Adding or updating tests
+* `chore`: Maintenance tasks
+
+.Example commit messages
+[example]
+====
+[source]
+----
+feat(operators): add arc command support
+
+Implements the PostScript arc operator for drawing
+circular arcs. Includes coordinate transformation
+and proper SVG path generation.
+
+Closes #123
+----
+
+[source]
+----
+fix(converter): handle missing BoundingBox gracefully
+
+Previously crashed when BoundingBox comment was missing.
+Now falls back to default dimensions.
+
+Fixes #456
+----
+====
+
+== Pull Request Process
+
+1. **Fork and Branch**
+   [source,sh]
+   ----
+   git checkout -b feature/my-feature
+   ----
+
+2. **Make Changes**
+   - Write code
+   - Add tests
+   - Update documentation
+
+3. **Test Locally**
+   [source,sh]
+   ----
+   bundle exec rake
+   ----
+
+4. **Commit**
+   [source,sh]
+   ----
+   git commit -m "feat: add new feature"
+   ----
+
+5. **Push**
+   [source,sh]
+   ----
+   git push origin feature/my-feature
+   ----
+
+6. **Create PR**
+   - Describe changes
+   - Link related issues
+   - Request review
+
+== Next Steps
+
+* Read link:contributing.adoc[Contributing Guide] for detailed contribution guidelines
+* Review link:architecture.adoc[Architecture] to understand the codebase
+* Check link:development/testing.adoc[Testing Guide] for test best practices
+* See link:development/adding-operators.adoc[Adding Operators] for implementation details
+
+== Bibliography
+
+* link:development/setup.adoc[Development Setup Guide]
+* link:development/testing.adoc[Testing Documentation]
+* link:https://rspec.info/[RSpec Documentation]
+* link:https://rubocop.org/[RuboCop Documentation]
+* link:https://www.conventionalcommits.org/[Conventional Commits]

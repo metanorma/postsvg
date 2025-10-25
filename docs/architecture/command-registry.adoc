@@ -1,0 +1,1191 @@
+= Command Registry
+:page-nav_order: 5
+
+== Purpose
+
+This document describes Postsvg's Command Registry architecture, which implements the Command design pattern for PostScript operators. Understanding the registry helps developers comprehend operator registration, command lookup, execution flow, and how to extend Postsvg with new operators.
+
+== References
+
+* link:../architecture.adoc[Architecture Overview]
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:interpreter-stage.adoc[Interpreter Stage]
+* link:design-decisions.adoc[Design Decisions]
+* link:../api-reference/commands.adoc[Commands API Reference]
+
+== Concepts
+
+**Command Pattern**:: Encapsulating requests as objects, allowing parameterization and queuing.
+
+**Registry Pattern**:: Central registry for mapping names to implementations.
+
+**Polymorphic Dispatch**:: Single interface for executing different operator types.
+
+**Category Organization**:: Commands grouped by functional category (path, graphics state, etc.).
+
+**Lazy Instantiation**:: Command instances created on demand rather than at startup.
+
+== Command Pattern Implementation
+
+=== Design Pattern Overview
+
+**Intent:** Encapsulate each PostScript operator as an object with a common interface.
+
+**Benefits:**
+
+* **Extensibility:** Easy to add new operators
+* **Testability:** Each operator can be tested in isolation
+* **Maintainability:** Clear separation of concerns
+* **Flexibility:** Operators can be overridden or aliased
+
+=== Command Interface
+
+**Base Class:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/base.rb
+module Postsvg
+  module Commands
+    class Base
+      def call(context)
+        raise NotImplementedError,
+              "#{self.class} must implement #call"
+      end
+    end
+  end
+end
+----
+
+**Interface Contract:**
+
+* `call(context)` - Execute command with given execution context
+* Returns nothing (modifies context in-place)
+* Raises exceptions on errors
+
+=== Command Implementation Example
+
+**MoveTo Command:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/path/move_to.rb
+module Postsvg
+  module Commands
+    module Path
+      class MoveTo < Base
+        def call(context)
+          # Pop operands from stack
+          y = context.pop_number
+          x = context.pop_number
+
+          # Execute operation
+          context.path_builder.move_to(x, y)
+          context.update_current_point(x, y)
+        end
+      end
+    end
+  end
+end
+----
+
+**Command Structure:**
+
+1. **Inherit from Base:** Establishes common interface
+2. **Pop Arguments:** Extract operands from stack
+3. **Execute Logic:** Perform operator's function
+4. **Modify Context:** Update state as needed
+
+== Registry Architecture
+
+=== Registry Class
+
+**Location:** [`lib/postsvg/commands/registry.rb`](../../lib/postsvg/commands/registry.rb:92)
+
+**Responsibilities:**
+
+* Store operator name → command class mappings
+* Provide command lookup by operator name
+* Create command instances on demand
+* Support operator aliases
+* Organize commands by category
+
+=== Registry Structure
+
+[source,ruby]
+----
+# lib/postsvg/commands/registry.rb:92
+class Registry
+  def initialize
+    @commands = {}  # operator_name => command_class
+  end
+
+  # Register a command class
+  def register(operator_name, command_class)
+    @commands[operator_name] = command_class
+  end
+
+  # Get command instance for operator
+  def get(operator_name)
+    command_class = @commands[operator_name]
+    command_class&.new
+  end
+
+  # Check if operator is registered
+  def registered?(operator_name)
+    @commands.key?(operator_name)
+  end
+
+  # Get all registered operator names
+  def operators
+    @commands.keys
+  end
+end
+----
+
+=== Registry Initialization
+
+**Default Registry:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/registry.rb:127
+def self.default
+  registry = new
+
+  # Register path commands
+  registry.register("moveto", Path::MoveTo)
+  registry.register("lineto", Path::LineTo)
+  registry.register("curveto", Path::CurveTo)
+  registry.register("closepath", Path::ClosePath)
+  registry.register("newpath", Path::NewPath)
+  # ... more path commands
+
+  # Register painting commands
+  registry.register("stroke", Painting::Stroke)
+  registry.register("fill", Painting::Fill)
+  registry.register("clip", Painting::Clip)
+  # ... more painting commands
+
+  # Register graphics state commands
+  registry.register("gsave", GraphicsState::Gsave)
+  registry.register("grestore", GraphicsState::Grestore)
+  registry.register("setlinewidth", GraphicsState::SetLineWidth)
+  # ... more graphics state commands
+
+  # ... additional categories
+
+  registry
+end
+----
+
+== Command Categories
+
+=== Path Construction Commands
+
+**Module:** `Commands::Path`
+
+**Operators:**
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Class
+
+|`moveto`
+|Start new subpath
+|`Path::MoveTo`
+
+|`rmoveto`
+|Relative move
+|`Path::RMoveTo`
+
+|`lineto`
+|Append straight line
+|`Path::LineTo`
+
+|`rlineto`
+|Relative line
+|`Path::RLineTo`
+
+|`curveto`
+|Append Bezier curve
+|`Path::CurveTo`
+
+|`rcurveto`
+|Relative curve
+|`Path::RCurveTo`
+
+|`arc`
+|Append circular arc
+|`Path::Arc`
+
+|`closepath`
+|Close current subpath
+|`Path::ClosePath`
+
+|`newpath`
+|Initialize new path
+|`Path::NewPath`
+
+|`re`
+|Rectangle path
+|`Path::Rectangle`
+|===
+
+**Example Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/path/line_to.rb
+module Postsvg
+  module Commands
+    module Path
+      class LineTo < Base
+        def call(context)
+          y = context.pop_number
+          x = context.pop_number
+          context.path_builder.line_to(x, y)
+          context.update_current_point(x, y)
+        end
+      end
+    end
+  end
+end
+----
+
+=== Painting Commands
+
+**Module:** `Commands::Painting`
+
+**Operators:**
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Class
+
+|`stroke`
+|Stroke current path
+|`Painting::Stroke`
+
+|`fill`
+|Fill current path
+|`Painting::Fill`
+
+|`eofill`
+|Even-odd fill
+|`Painting::Eofill`
+
+|`clip`
+|Set clipping path
+|`Painting::Clip`
+
+|`eoclip`
+|Even-odd clip
+|`Painting::Eoclip`
+
+|`shfill`
+|Shading fill
+|`Painting::Shfill`
+|===
+
+**Example Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/painting/stroke.rb
+module Postsvg
+  module Commands
+    module Painting
+      class Stroke < Base
+        def call(context)
+          # Flush current path with stroke mode
+          context.flush_path({ fill: false, stroke: true })
+        end
+      end
+    end
+  end
+end
+----
+
+=== Graphics State Commands
+
+**Module:** `Commands::GraphicsState`
+
+**Operators:**
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Class
+
+|`gsave`
+|Save graphics state
+|`GraphicsState::Gsave`
+
+|`grestore`
+|Restore graphics state
+|`GraphicsState::Grestore`
+
+|`setlinewidth`
+|Set line width
+|`GraphicsState::SetLineWidth`
+
+|`setlinecap`
+|Set line cap style
+|`GraphicsState::SetLineCap`
+
+|`setlinejoin`
+|Set line join style
+|`GraphicsState::SetLineJoin`
+
+|`setdash`
+|Set dash pattern
+|`GraphicsState::SetDash`
+
+|`setmiterlimit`
+|Set miter limit
+|`GraphicsState::SetMiterLimit`
+|===
+
+**Example Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/graphics_state/gsave.rb
+module Postsvg
+  module Commands
+    module GraphicsState
+      class Gsave < Base
+        def call(context)
+          context.save_graphics_state
+        end
+      end
+    end
+  end
+end
+----
+
+=== Color Commands
+
+**Module:** `Commands::Color`
+
+**Operators:**
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Class
+
+|`setrgbcolor`
+|Set RGB color
+|`Color::SetRgbColor`
+
+|`setgray`
+|Set gray level
+|`Color::SetGray`
+
+|`setcmykcolor`
+|Set CMYK color
+|`Color::SetCmykColor`
+|===
+
+**Example Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/color/set_rgb_color.rb
+module Postsvg
+  module Commands
+    module Color
+      class SetRgbColor < Base
+        def call(context)
+          b = context.pop_number
+          g = context.pop_number
+          r = context.pop_number
+
+          # Convert to hex color
+          hex = format("#%02x%02x%02x",
+                       (r * 255).to_i,
+                       (g * 255).to_i,
+                       (b * 255).to_i)
+
+          # Set both fill and stroke
+          context.graphics_state[:fill] = hex
+          context.graphics_state[:stroke] = hex
+        end
+      end
+    end
+  end
+end
+----
+
+=== Transformation Commands
+
+**Module:** `Commands::Transformation`
+
+**Operators:**
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Class
+
+|`translate`
+|Translate coordinate system
+|`Transformation::Translate`
+
+|`scale`
+|Scale coordinate system
+|`Transformation::Scale`
+
+|`rotate`
+|Rotate coordinate system
+|`Transformation::Rotate`
+
+|`concat`
+|Concatenate matrix
+|`Transformation::Concat`
+|===
+
+**Example Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/transformation/translate.rb
+module Postsvg
+  module Commands
+    module Transformation
+      class Translate < Base
+        def call(context)
+          ty = context.pop_number
+          tx = context.pop_number
+
+          # Update current transformation matrix
+          context.graphics_state[:ctm] =
+            context.graphics_state[:ctm].translate(tx, ty)
+        end
+      end
+    end
+  end
+end
+----
+
+=== Stack Commands
+
+**Module:** `Commands::Stack`
+
+**Operators:**
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Class
+
+|`dup`
+|Duplicate top element
+|`Stack::Dup`
+
+|`exch`
+|Exchange top two elements
+|`Stack::Exch`
+
+|`pop`
+|Remove top element
+|`Stack::Pop`
+
+|`=`
+|Print top element
+|`Stack::Equal`
+
+|`==`
+|Print top element (verbose)
+|`Stack::DoubleEqual`
+|===
+
+**Example Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/stack/dup.rb
+module Postsvg
+  module Commands
+    module Stack
+      class Dup < Base
+        def call(context)
+          value = context.peek
+          context.push(value)
+        end
+      end
+    end
+  end
+end
+----
+
+=== Arithmetic Commands
+
+**Module:** `Commands::Arithmetic`
+
+**Operators:**
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Class
+
+|`add`
+|Addition
+|`Arithmetic::Add`
+
+|`sub`
+|Subtraction
+|`Arithmetic::Sub`
+
+|`mul`
+|Multiplication
+|`Arithmetic::Mul`
+
+|`div`
+|Division
+|`Arithmetic::Div`
+
+|`neg`
+|Negation
+|`Arithmetic::Neg`
+|===
+
+**Example Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/arithmetic/add.rb
+module Postsvg
+  module Commands
+    module Arithmetic
+      class Add < Base
+        def call(context)
+          b = context.pop_number
+          a = context.pop_number
+          context.push(a + b)
+        end
+      end
+    end
+  end
+end
+----
+
+=== Dictionary Commands
+
+**Module:** `Commands::Dictionary`
+
+**Operators:**
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Class
+
+|`dict`
+|Create dictionary
+|`Dictionary::Dict`
+
+|`begin`
+|Push dictionary on dict stack
+|`Dictionary::Begin`
+
+|`end`
+|Pop dictionary from dict stack
+|`Dictionary::End`
+
+|`def`
+|Define key-value pair
+|`Dictionary::Def`
+|===
+
+**Example Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/dictionary/def.rb
+module Postsvg
+  module Commands
+    module Dictionary
+      class Def < Base
+        def call(context)
+          value = context.pop
+          key = context.pop
+
+          # Remove leading '/' if present
+          key = key.sub(/^\//, "") if key.is_a?(String)
+
+          context.define(key, value)
+        end
+      end
+    end
+  end
+end
+----
+
+=== Text Commands
+
+**Module:** `Commands::Text`
+
+**Operators:**
+
+[cols="1,2,1"]
+|===
+|Operator |Purpose |Class
+
+|`findfont`
+|Find font by name
+|`Text::FindFont`
+
+|`scalefont`
+|Scale font
+|`Text::ScaleFont`
+
+|`setfont`
+|Set current font
+|`Text::SetFont`
+
+|`show`
+|Show text string
+|`Text::Show`
+|===
+
+**Example Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/text/show.rb
+module Postsvg
+  module Commands
+    module Text
+      class Show < Base
+        def call(context)
+          text = context.pop
+
+          # Get current position and font settings
+          x = context.current_x
+          y = context.current_y
+          font = context.graphics_state[:font]
+          size = context.graphics_state[:font_size]
+          fill = context.graphics_state[:fill]
+
+          # Generate SVG text element
+          text_elem = "<text x=\"#{x}\" y=\"#{y}\" " \
+                      "font-family=\"#{font}\" " \
+                      "font-size=\"#{size}\" " \
+                      "fill=\"#{fill}\">#{escape_xml(text)}</text>"
+
+          context.svg_output[:text] << text_elem
+        end
+      end
+    end
+  end
+end
+----
+
+== Operator Aliasing
+
+=== Purpose of Aliases
+
+**Compatibility:** Support PDF operators (shortened names)
+
+**Convenience:** Common abbreviations for frequently-used operators
+
+**Standards:** Match PostScript Level 2/3 and PDF conventions
+
+=== Alias Registration
+
+[source,ruby]
+----
+# lib/postsvg/commands/registry.rb:152
+# Cairo/PDF-style aliases
+registry.register("S", Painting::Stroke)        # S = stroke
+registry.register("f", Painting::Fill)          # f = fill
+registry.register("f*", Painting::Eofill)       # f* = eofill
+registry.register("n", Path::NewPath)           # n = newpath
+registry.register("W", Painting::Clip)          # W = clip
+registry.register("W*", Painting::Eoclip)       # W* = eoclip
+
+registry.register("q", GraphicsState::Gsave)    # q = gsave
+registry.register("Q", GraphicsState::Grestore) # Q = grestore
+registry.register("w", GraphicsState::SetLineWidth)  # w = setlinewidth
+registry.register("J", GraphicsState::SetLineCap)    # J = setlinecap
+registry.register("j", GraphicsState::SetLineJoin)   # j = setlinejoin
+registry.register("d", GraphicsState::SetDash)       # d = setdash
+registry.register("M", GraphicsState::SetMiterLimit) # M = setmiterlimit
+
+registry.register("cm", Transformation::Concat) # cm = concat
+registry.register("restore", GraphicsState::Grestore)  # restore = grestore
+----
+
+=== Alias Examples
+
+**PDF-Style Drawing:**
+
+[source,postscript]
+----
+q                 % gsave
+100 50 m          % moveto (not supported, would need alias)
+200 150 l         % lineto (not supported, would need alias)
+S                 % stroke
+Q                 % grestore
+----
+
+**Standard PostScript:**
+
+[source,postscript]
+----
+gsave
+100 50 moveto
+200 150 lineto
+stroke
+grestore
+----
+
+**Both Equivalent:** Same command classes execute.
+
+== Command Lookup and Execution
+
+=== Lookup Process
+
+**Step 1: Interpreter Receives Operator Token**
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:58
+when "operator"
+  execute_operator(token.value, tokens, i)
+----
+
+**Step 2: Check Dictionary Stack First**
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:179
+dict_val = @context.lookup(op)
+if dict_val
+  # User-defined operator takes precedence
+  execute_user_defined(dict_val)
+  return
+end
+----
+
+**Step 3: Query Registry**
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:190
+command = @registry.get(op)
+if command
+  command.call(@context)
+else
+  handle_unknown_operator(op)
+end
+----
+
+=== Execution Flow
+
+.Operator Execution Flow
+[source]
+----
+Operator Token
+      │
+      ▼
+Dictionary Lookup
+      │
+      ├─ Found? ──> Execute User-Defined
+      │
+      ▼ Not Found
+Registry Lookup
+      │
+      ├─ Found? ──> Create Instance ──> Execute Command
+      │
+      ▼ Not Found
+Error Handling
+      │
+      ├─ Strict Mode? ──> Raise Exception
+      │
+      ▼ Lenient Mode
+Add HTML Comment
+----
+
+=== Lazy Instantiation
+
+**Design Choice:** Create command instances on demand rather than at startup.
+
+**Benefits:**
+
+* **Lower Memory:** Only instantiate commands actually used
+* **Faster Startup:** No upfront instantiation cost
+* **Thread Safety:** Each lookup gets fresh instance
+
+**Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/registry.rb:107
+def get(operator_name)
+  command_class = @commands[operator_name]
+  command_class&.new  # Create new instance each time
+end
+----
+
+**Trade-off:** Slight overhead per execution vs memory savings.
+
+== Adding New Commands
+
+=== Step-by-Step Guide
+
+**1. Create Command Class:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/my_category/my_operator.rb
+module Postsvg
+  module Commands
+    module MyCategory
+      class MyOperator < Base
+        def call(context)
+          # Pop arguments
+          arg2 = context.pop_number
+          arg1 = context.pop_number
+
+          # Execute logic
+          result = perform_operation(arg1, arg2)
+
+          # Update context
+          context.push(result)
+        end
+
+        private
+
+        def perform_operation(a, b)
+          # Implementation
+        end
+      end
+    end
+  end
+end
+----
+
+**2. Require in Registry:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/registry.rb (top of file)
+require_relative "my_category/my_operator"
+----
+
+**3. Register in Default Registry:**
+
+[source,ruby]
+----
+# lib/postsvg/commands/registry.rb:127 (in self.default)
+registry.register("myoperator", MyCategory::MyOperator)
+----
+
+**4. Add Tests:**
+
+[source,ruby]
+----
+# spec/commands/my_category/my_operator_spec.rb
+RSpec.describe Postsvg::Commands::MyCategory::MyOperator do
+  let(:context) { Postsvg::ExecutionContext.new }
+  let(:command) { described_class.new }
+
+  it "performs expected operation" do
+    context.push(10)
+    context.push(20)
+    command.call(context)
+    expect(context.pop).to eq(expected_result)
+  end
+end
+----
+
+=== Command Implementation Patterns
+
+**Pattern 1: Simple Stack Manipulation**
+
+[source,ruby]
+----
+class Exch < Base
+  def call(context)
+    b = context.pop
+    a = context.pop
+    context.push(b)
+    context.push(a)
+  end
+end
+----
+
+**Pattern 2: State Modification**
+
+[source,ruby]
+----
+class SetLineWidth < Base
+  def call(context)
+    width = context.pop_number
+    context.graphics_state[:stroke_width] = width
+  end
+end
+----
+
+**Pattern 3: Path Building**
+
+[source,ruby]
+----
+class LineTo < Base
+  def call(context)
+    y = context.pop_number
+    x = context.pop_number
+    context.path_builder.line_to(x, y)
+    context.update_current_point(x, y)
+  end
+end
+----
+
+**Pattern 4: SVG Output**
+
+[source,ruby]
+----
+class Stroke < Base
+  def call(context)
+    context.flush_path({ fill: false, stroke: true })
+  end
+end
+----
+
+== Error Handling in Commands
+
+=== Argument Validation
+
+**Type Checking:**
+
+[source,ruby]
+----
+class SetRgbColor < Base
+  def call(context)
+    b = context.pop_number  # Returns 0 if not numeric
+    g = context.pop_number
+    r = context.pop_number
+
+    # Clamp values to valid range
+    r = [[r, 0].max, 1].min
+    g = [[g, 0].max, 1].min
+    b = [[b, 0].max, 1].min
+
+    # Continue with valid values
+  end
+end
+----
+
+**Stack Underflow Protection:**
+
+[source,ruby]
+----
+def pop_number(default = 0)
+  v = @stack.pop
+  return default if v.nil?  # Stack was empty
+  return v if v.is_a?(Numeric)
+  return v.to_f if v.is_a?(String) && v.match?(/^-?\d+\.?\d*$/)
+  default
+end
+----
+
+=== Exception Handling
+
+**Command-Level Exceptions:**
+
+[source,ruby]
+----
+class ComplexCommand < Base
+  def call(context)
+    validate_preconditions(context)
+    perform_operation(context)
+  rescue StandardError => e
+    # Let interpreter handle in strict/lenient mode
+    raise
+  end
+end
+----
+
+**Interpreter-Level Handling:**
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:193
+begin
+  command.call(@context)
+rescue StandardError => e
+  if @strict_mode
+    raise ConversionError, "Error executing '#{op}': #{e.message}"
+  else
+    @context.svg_output[:paths] << "<!-- Error: #{e.message} -->"
+  end
+end
+----
+
+== Performance Considerations
+
+=== Time Complexity
+
+**Registry Lookup:** O(1) average (hash table)
+
+**Command Instantiation:** O(1) per execution
+
+**Command Execution:** Varies by operator
+
+**Overall:** O(n) where n = number of operators executed
+
+=== Space Complexity
+
+**Registry Storage:** O(c) where c = number of registered commands
+
+**Command Instances:** O(1) per execution (garbage collected)
+
+**Overall:** O(c) constant space
+
+=== Optimization Opportunities
+
+**Instance Pooling:**
+
+[source,ruby]
+----
+class Registry
+  def initialize
+    @commands = {}
+    @instances = {}  # Cache instances
+  end
+
+  def get(operator_name)
+    @instances[operator_name] ||= @commands[operator_name]&.new
+  end
+end
+----
+
+**Trade-off:** Memory usage vs allocation overhead
+
+**Current Decision:** Prioritize memory efficiency with lazy instantiation
+
+== Testing Commands
+
+=== Unit Test Template
+
+[source,ruby]
+----
+RSpec.describe Postsvg::Commands::Category::CommandName do
+  let(:context) { Postsvg::ExecutionContext.new }
+  let(:command) { described_class.new }
+
+  describe "#call" do
+    it "performs expected operation" do
+      # Setup: push arguments onto stack
+      context.push(arg1)
+      context.push(arg2)
+
+      # Execute
+      command.call(context)
+
+      # Verify: check stack, graphics state, or output
+      expect(context.pop).to eq(expected_result)
+    end
+
+    it "handles edge cases" do
+      # Test boundary conditions
+    end
+
+    it "validates arguments" do
+      # Test error handling
+    end
+  end
+end
+----
+
+=== Integration Tests
+
+[source,ruby]
+----
+describe "command integration" do
+  it "executes sequence of commands" do
+    ps = <<~PS
+      newpath
+      100 50 moveto
+      200 150 lineto
+      stroke
+    PS
+
+    svg = Postsvg.convert(ps)
+    expect(svg).to include("M 100 50 L 200 150")
+  end
+end
+----
+
+== Registry Extension Examples
+
+=== Custom Operator
+
+**Use Case:** Add domain-specific operator.
+
+[source,ruby]
+----
+# Custom command
+class DrawCircle < Commands::Base
+  def call(context)
+    r = context.pop_number
+    cy = context.pop_number
+    cx = context.pop_number
+
+    # Generate SVG circle
+    circle = "<circle cx=\"#{cx}\" cy=\"#{cy}\" r=\"#{r}\" />"
+    context.svg_output[:paths] << circle
+  end
+end
+
+# Register it
+registry.register("drawcircle", DrawCircle)
+----
+
+**Usage:**
+
+[source,postscript]
+----
+100 150 50 drawcircle  % Draw circle at (100,150) with radius 50
+----
+
+=== Override Existing Operator
+
+**Use Case:** Customize behavior of standard operator.
+
+[source,ruby]
+----
+class CustomStroke < Commands::Painting::Stroke
+  def call(context)
+    # Add custom logic before standard stroke
+    apply_custom_effects(context)
+
+    # Call standard implementation
+    super
+  end
+
+  private
+
+  def apply_custom_effects(context)
+    # Custom implementation
+  end
+end
+
+# Override standard stroke
+registry.register("stroke", CustomStroke)
+----
+
+== Next Steps
+
+* Review link:graphics-state-model.adoc[Graphics State Model] for state management
+* Explore link:design-decisions.adoc[Design Decisions] for architectural rationale
+* Study link:../development.adoc[Development Guide] for contributing
+* See link:../api-reference/commands.adoc[Commands API Reference] for details
+
+== Bibliography
+
+* link:conversion-pipeline.adoc[Conversion Pipeline Documentation]
+* link:interpreter-stage.adoc[Interpreter Stage Documentation]
+* link:design-decisions.adoc[Design Decisions]
+* Design Patterns: Elements of Reusable Object-Oriented Software (Gang of Four)
+* PostScript Language Reference Manual, 3rd Edition (Adobe Systems)
+* Command Pattern in Modern Software Design

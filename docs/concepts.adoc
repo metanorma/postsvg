@@ -1,0 +1,198 @@
+= Core Concepts
+:page-nav_order: 3
+
+== Purpose
+
+This section explains the fundamental concepts behind Postsvg's architecture and operation. Understanding these concepts will help you use Postsvg effectively and troubleshoot issues when they arise.
+
+== References
+
+* link:index.adoc[Documentation Home]
+* link:architecture.adoc[Architecture Documentation]
+* link:postscript.adoc[PostScript Language Reference]
+* link:getting-started.adoc[Getting Started Guide]
+
+== Concepts
+
+**Conversion Pipeline**:: The three-stage process of tokenization, interpretation, and SVG generation that transforms PostScript into SVG.
+
+**Graphics State**:: A data structure maintaining the current drawing parameters including colors, line width, transformations, and the current path.
+
+**Operand Stack**:: A stack-based execution model where PostScript operators pop arguments from the stack and push results back.
+
+**Coordinate Transformation**:: The mathematical transformation between PostScript's coordinate system and SVG's coordinate system.
+
+**Path Construction**:: The process of building vector paths through moveto, lineto, curveto, and other path operators.
+
+== Core Concepts Topics
+
+link:concepts/postscript-language.adoc[**PostScript Language**]::
+Overview of the PostScript language, its stack-based execution model, and how Postsvg interprets it.
+
+link:concepts/conversion-pipeline.adoc[**Conversion Pipeline**]::
+The three-stage architecture: tokenization/parsing, interpretation/execution, and SVG generation.
+
+link:concepts/graphics-state.adoc[**Graphics State Management**]::
+How Postsvg maintains and manipulates the graphics state throughout conversion.
+
+link:concepts/coordinate-systems.adoc[**Coordinate Systems**]::
+Understanding PostScript's bottom-left origin vs SVG's top-left origin, and how transformations work.
+
+link:concepts/path-operations.adoc[**Path Operations**]::
+How paths are constructed, manipulated, and rendered in the conversion process.
+
+link:concepts/svg-generation.adoc[**SVG Generation**]::
+The process of generating clean, standards-compliant SVG from interpreted PostScript commands.
+
+== Conversion Pipeline Overview
+
+.Three-Stage Conversion Architecture
+[source]
+----
+┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
+│  PostScript     │      │  Tokenizer &     │      │  Interpreter    │
+│  Input File     │─────>│  Parser          │─────>│  & Execution    │
+│  (.ps/.eps)     │      │                  │      │  Context        │
+└─────────────────┘      └──────────────────┘      └────────┬────────┘
+                                                             │
+                         ┌──────────────────┐               │
+                         │  SVG Generator   │<──────────────┘
+                         │                  │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │  SVG Output      │
+                         │  (.svg)          │
+                         └──────────────────┘
+----
+
+=== Stage 1: Tokenization and Parsing
+
+The [`Tokenizer`](../lib/postsvg/tokenizer.rb:8) class reads the PostScript file and breaks it into tokens:
+
+* Numbers (integers and floats)
+* Operators (commands like `moveto`, `lineto`)
+* Names (identifiers starting with `/`)
+* Strings (enclosed in parentheses or angle brackets)
+* Arrays (enclosed in square brackets)
+* Procedures (executable arrays enclosed in curly braces)
+
+=== Stage 2: Interpretation and Execution
+
+The [`Interpreter`](../lib/postsvg/interpreter.rb:9) class executes PostScript commands using:
+
+* **Operand Stack**: Stores values for operators
+* **Dictionary Stack**: Manages variable definitions
+* **Graphics State**: Tracks current drawing parameters
+* **Execution Context**: Coordinates the execution environment
+
+=== Stage 3: SVG Generation
+
+The [`SvgGenerator`](../lib/postsvg/svg_generator.rb:7) class creates SVG output:
+
+* Transforms coordinates from PostScript to SVG space
+* Converts paths to SVG path data format
+* Applies colors, line widths, and other styling
+* Generates optimized, standards-compliant SVG markup
+
+== Graphics State Model
+
+The graphics state is a critical concept in both PostScript and Postsvg. It maintains all parameters that affect how graphics are rendered:
+
+**Transformation Matrix**:: Current coordinate transformation (CTM)
+**Current Path**:: Path being constructed
+**Current Point**:: Last point touched by a path operator
+**Color**:: Fill and stroke colors (RGB, grayscale, or CMYK)
+**Line Attributes**:: Line width, cap style, join style, dash pattern
+**Clipping Path**:: Region where drawing operations are visible
+
+.Graphics State Stack
+[source]
+----
+gsave → Save current state
+  (modify state)
+  gsave → Save modified state
+    (modify state further)
+  grestore → Restore to first modified state
+grestore → Restore to original state
+----
+
+== PostScript Stack Model
+
+PostScript uses a stack-based execution model:
+
+[source,postscript]
+----
+10 20 moveto    % Stack: empty (moveto consumed both values)
+100 0 rlineto   % Stack: empty (rlineto consumed both values)
+0.5 setgray     % Stack: empty (setgray consumed the value)
+fill            % Stack: empty (fill takes no arguments)
+----
+
+The stack operations are fundamental:
+
+* `dup` - Duplicate top item
+* `pop` - Remove top item
+* `exch` - Exchange top two items
+* `roll` - Rotate items on stack
+
+== Coordinate System Transformation
+
+PostScript uses a bottom-left origin with Y increasing upward, while SVG uses a top-left origin with Y increasing downward.
+
+.Coordinate System Difference
+[source]
+----
+PostScript (0,0 at bottom-left)    SVG (0,0 at top-left)
+
+    100 ┌────────┐                     ┌────────┐ 0
+        │        │                     │        │
+        │        │                     │        │
+      0 └────────┘                     └────────┘ 100
+        0      100                     0      100
+----
+
+Postsvg handles this transformation automatically by:
+
+1. Flipping the Y-coordinate: `svg_y = height - ps_y`
+2. Adjusting the viewBox to match the BoundingBox
+3. Transforming all path coordinates appropriately
+
+== Path Construction Process
+
+Paths in PostScript are built incrementally:
+
+[source,postscript]
+----
+newpath           % Initialize empty path
+10 10 moveto      % Start new subpath at (10,10)
+90 10 lineto      % Add line to (90,10)
+90 90 lineto      % Add line to (90,90)
+10 90 lineto      % Add line to (10,90)
+closepath         % Close the subpath (back to 10,10)
+fill              % Fill the path with current color
+----
+
+This becomes an SVG path:
+
+[source,xml]
+----
+<path d="M 10 90 L 90 90 L 90 10 L 10 10 Z" fill="#808080"/>
+----
+
+== Next Steps
+
+After understanding these core concepts:
+
+* Explore the link:architecture.adoc[Architecture Documentation] for implementation details
+* Read the link:postscript.adoc[PostScript Language Reference] for operator details
+* Review link:api-reference.adoc[API Reference] to use these concepts in code
+* Check link:advanced-topics.adoc[Advanced Topics] for complex scenarios
+
+== Bibliography
+
+* Adobe Systems Incorporated. _PostScript Language Reference_, 3rd Edition
+* link:https://www.w3.org/TR/SVG/paths.html[SVG Paths Specification]
+* link:concepts/conversion-pipeline.adoc[Detailed Conversion Pipeline]
+* link:concepts/graphics-state.adoc[Graphics State Management]

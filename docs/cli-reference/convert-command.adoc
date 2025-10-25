@@ -1,0 +1,462 @@
+= convert Command
+:page-nav_order: 1
+:page-parent: CLI Reference
+
+== Purpose
+
+The `convert` command is the primary CLI tool for converting single PostScript or EPS files to SVG format. It provides a simple, straightforward interface for one-off conversions.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../cli-reference.adoc[CLI Reference Overview]
+* link:batch-command.adoc[batch Command]
+* link:check-command.adoc[check Command]
+* link:../getting-started/basic-usage.adoc[Basic Usage]
+
+== Concepts
+
+**Single File Conversion**:: Converting one PostScript or EPS file at a time.
+
+**Standard Output (stdout)**:: Sending output to the console instead of a file, useful for piping to other commands.
+
+**Exit Code**:: A numeric value indicating success (0) or failure (1) that scripts can check.
+
+**Strict Mode**:: A validation mode that fails immediately on unknown operators.
+
+== Command Syntax
+
+[source,sh]
+----
+postsvg convert [OPTIONS] INPUT_FILE [OUTPUT_FILE] <1>
+----
+<1> Convert INPUT_FILE to SVG, optionally saving to OUTPUT_FILE
+
+**Where:**
+
+`INPUT_FILE`:: Path to PostScript (`.ps`) or EPS (`.eps`) file (required)
+
+`OUTPUT_FILE`:: Path where SVG should be saved (optional). If omitted, SVG is written to stdout.
+
+**Options:**
+
+`--strict`:: Enable strict mode (fail on unknown operators)
+
+**Exit Codes:**
+* `0` - Success
+* `1` - Failure (file not found, conversion error, etc.)
+
+**Source:**
+[`lib/postsvg/cli.rb:10-50`](../../lib/postsvg/cli.rb:10)
+
+== Basic Usage
+
+=== Convert to File
+
+Convert PostScript to SVG and save to file:
+
+[source,sh]
+----
+postsvg convert input.ps output.svg <1>
+----
+<1> Reads `input.ps`, converts to SVG, saves as `output.svg`
+
+**Output:**
+[source]
+----
+Successfully converted input.ps to output.svg
+----
+
+.Convert EPS to SVG
+[example]
+====
+[source,sh]
+----
+$ postsvg convert diagram.eps diagram.svg
+Successfully converted diagram.eps to diagram.svg
+
+$ ls -lh diagram.svg
+-rw-r--r-- 1 user group 1.2K Jan 24 10:00 diagram.svg
+----
+====
+
+=== Convert to stdout
+
+Output SVG to console instead of file:
+
+[source,sh]
+----
+postsvg convert input.ps <1>
+----
+<1> Writes SVG to stdout (no output file specified)
+
+**Output:**
+[source,xml]
+----
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg"...>
+  <path d="..."/>
+</svg>
+----
+
+.Redirect stdout to file
+[example]
+====
+[source,sh]
+----
+# Redirect to file
+postsvg convert input.ps > output.svg
+
+# Pipe to another command
+postsvg convert input.ps | xmllint --format - > formatted.svg
+
+# Preview in browser
+postsvg convert input.ps | less
+----
+====
+
+== Command Options
+
+=== --strict
+
+Enable strict mode to fail on unknown operators.
+
+[source,sh]
+----
+postsvg convert --strict input.ps output.svg <1>
+----
+<1> Fail immediately if unknown operators are encountered
+
+**Use Cases:**
+* Development and testing
+* Validating PostScript compatibility
+* Ensuring all operators are supported
+* Debugging conversion issues
+
+.Strict mode example
+[example]
+====
+[source,sh]
+----
+# Without strict mode (ignores unknown operators)
+$ postsvg convert test.ps test.svg
+Successfully converted test.ps to test.svg
+
+# With strict mode (fails on unknown operators)
+$ postsvg convert --strict test.ps test.svg
+Conversion error: Unknown operator: complexoperator
+----
+
+In strict mode, conversion fails immediately when an unsupported operator is encountered, helping you identify compatibility issues.
+====
+
+== File Format Support
+
+=== Supported Input Formats
+
+**PostScript Files (`.ps`):**
+- Standard PostScript files
+- May or may not have BoundingBox
+- Can contain multiple pages
+
+**EPS Files (`.eps`):**
+- Encapsulated PostScript
+- Should have `%%BoundingBox` comment
+- Typically single page
+
+.Input format detection
+[example]
+====
+[source,sh]
+----
+# Works with both formats
+postsvg convert document.ps document.svg
+postsvg convert diagram.eps diagram.svg
+
+# File extension doesn't matter - content is what counts
+postsvg convert file.txt output.svg  # Works if contains PostScript
+----
+====
+
+=== Output Format
+
+Always generates **SVG 1.1** compliant markup:
+
+[source,xml]
+----
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="..." height="..."
+     viewBox="...">
+  <!-- SVG content -->
+</svg>
+----
+
+== Error Messages
+
+=== File Not Found
+
+[source]
+----
+$ postsvg convert missing.ps output.svg
+Error: Input file 'missing.ps' not found
+----
+
+**Exit code:** 1
+
+**Solution:** Check file path and ensure file exists
+
+=== Conversion Error
+
+[source]
+----
+$ postsvg convert broken.ps output.svg
+Conversion error: Stack underflow at operator 'moveto'
+----
+
+**Exit code:** 1
+
+**Solutions:**
+1. Validate with: `postsvg check broken.ps`
+2. Try without strict mode
+3. Check PostScript syntax
+
+=== Unknown Operator (Strict Mode)
+
+[source]
+----
+$ postsvg convert --strict advanced.ps output.svg
+Conversion error: Unknown operator: shfill
+----
+
+**Exit code:** 1
+
+**Solutions:**
+1. Remove `--strict` flag (ignore unknown operators)
+2. Check link:../postscript/operators/index.adoc[supported operators]
+3. Request feature or contribute implementation
+
+== Usage Patterns
+
+=== Pattern 1: Validate Then Convert
+
+[source,sh]
+----
+#!/bin/bash
+# safe-convert.sh
+
+INPUT="$1"
+OUTPUT="$2"
+
+# Validate first
+if postsvg check "$INPUT"; then
+  # Convert if valid
+  postsvg convert "$INPUT" "$OUTPUT"
+  echo "✓ Conversion complete"
+else
+  echo "✗ Validation failed"
+  exit 1
+fi
+----
+
+=== Pattern 2: Convert Multiple Files
+
+[source,sh]
+----
+#!/bin/bash
+# convert-all.sh
+
+for file in *.ps; do
+  output="${file%.ps}.svg"
+
+  if postsvg convert "$file" "$output"; then
+    echo "✓ $file → $output"
+  else
+    echo "✗ Failed: $file"
+  fi
+done
+----
+
+=== Pattern 3: Preview Conversion
+
+[source,sh]
+----
+# Convert and immediately open in browser
+postsvg convert diagram.eps diagram.svg && open diagram.svg
+
+# Or pipe directly to browser (macOS)
+postsvg convert diagram.eps | open -f -a Safari
+----
+
+=== Pattern 4: CI/CD Integration
+
+[source,yaml]
+----
+# .github/workflows/convert.yml
+- name: Convert PostScript files
+  run: |
+    for file in docs/*.ps; do
+      postsvg convert "$file" "${file%.ps}.svg" || exit 1
+    done
+----
+
+== Performance Tips
+
+**For Large Files:**
+[source,sh]
+----
+# Monitor conversion time
+time postsvg convert large.ps large.svg
+
+# Check memory usage (Linux)
+/usr/bin/time -v postsvg convert large.ps large.svg
+----
+
+**For Many Files:**
+Use link:batch-command.adoc[batch command] instead:
+[source,sh]
+----
+# More efficient for multiple files
+postsvg batch input_dir/ output_dir/
+----
+
+== Environment Considerations
+
+=== Working Directory
+
+The command respects relative paths:
+
+[source,sh]
+----
+# From current directory
+postsvg convert ./files/input.ps ./output/result.svg
+
+# With absolute paths
+postsvg convert /path/to/input.ps /path/to/output.svg
+
+# Parent directory
+postsvg convert ../input.ps ./output.svg
+----
+
+=== File Permissions
+
+**Required Permissions:**
+* Read permission on input file
+* Write permission on output directory
+
+[source,sh]
+----
+# Check permissions
+ls -l input.ps
+
+# Fix if needed
+chmod +r input.ps
+chmod +w output_directory/
+----
+
+== Integration Examples
+
+=== Shell Script Integration
+
+[source,sh]
+----
+#!/bin/bash
+# production-convert.sh
+
+set -euo pipefail  # Exit on error
+
+INPUT="${1:?Input file required}"
+OUTPUT="${2:?Output file required}"
+
+# Backup existing output
+if [ -f "$OUTPUT" ]; then
+  cp "$OUTPUT" "${OUTPUT}.backup"
+fi
+
+# Convert with error handling
+if postsvg convert "$INPUT" "$OUTPUT"; then
+  echo "Success: $OUTPUT"
+  rm -f "${OUTPUT}.backup"
+  exit 0
+else
+  echo "Failed: Restoring backup"
+  [ -f "${OUTPUT}.backup" ] && mv "${OUTPUT}.backup" "$OUTPUT"
+  exit 1
+fi
+----
+
+=== Makefile Integration
+
+[source,makefile]
+----
+# Makefile
+.SUFFIXES: .ps .svg
+
+.ps.svg:
+	postsvg convert $< $@
+
+# Convert all PS files
+all: $(patsubst %.ps,%.svg,$(wildcard *.ps))
+
+clean:
+	rm -f *.svg
+
+.PHONY: all clean
+----
+
+== Comparison with Other Commands
+
+[cols="1,2,2"]
+|===
+| Feature | convert | batch
+
+| Files processed
+| Single file
+| Multiple files
+
+| Output control
+| Precise (file or stdout)
+| Directory-based
+
+| Error handling
+| Immediate exit
+| Continue on error
+
+| Use case
+| One-off conversion
+| Bulk processing
+
+| Performance
+| One file overhead
+| Optimized for many files
+|===
+
+**When to use `convert`:**
+- ✅ Converting single files
+- ✅ Need precise output control
+- ✅ Piping to other commands
+- ✅ Scripted individual conversions
+
+**When to use `batch`:**
+- ✅ Converting multiple files
+- ✅ Processing entire directories
+- ✅ Want progress reporting
+- ✅ Continue on individual failures
+
+== Next Steps
+
+* Learn link:batch-command.adoc[batch command] for multiple files
+* Review link:check-command.adoc[check command] for validation
+* See link:../getting-started/basic-usage.adoc[Basic Usage] for examples
+* Check link:../api-reference/converter.adoc[Converter Class] for API equivalent
+
+== Bibliography
+
+* link:batch-command.adoc[batch Command Documentation]
+* link:check-command.adoc[check Command Documentation]
+* link:../api-reference/converter.adoc[Converter Class API]
+* link:../getting-started/common-workflows.adoc[Common Workflows]

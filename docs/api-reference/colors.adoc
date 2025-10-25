@@ -1,0 +1,705 @@
+= Colors Module
+:page-nav_order: 10
+:page-parent: API Reference
+
+== Purpose
+
+The [`Colors`](../../lib/postsvg/colors.rb:4) module provides utility functions for converting PostScript color values to RGB color strings suitable for SVG output. It supports RGB, grayscale, and CMYK color models commonly used in PostScript graphics.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../api-reference.adoc[API Reference Overview]
+* link:graphics-state.adoc[GraphicsState Class]
+* link:svg-generator.adoc[SvgGenerator Class]
+* link:interpreter.adoc[Interpreter Class]
+* link:../architecture.adoc[Architecture Overview]
+
+== Concepts
+
+**Color Space**:: A mathematical model describing how colors are represented as tuples of numbers. PostScript supports multiple color spaces including RGB, CMYK, and grayscale.
+
+**RGB Color Model**:: An additive color model where colors are represented as combinations of Red, Green, and Blue light values from 0 to 255 (or 0.0 to 1.0 in PostScript).
+
+**CMYK Color Model**:: A subtractive color model used in printing where colors are represented as Cyan, Magenta, Yellow, and blacK values from 0.0 to 1.0.
+
+**Grayscale**:: A color model representing shades of gray from black (0.0) to white (1.0).
+
+**PostScript Color Values**:: Color components in PostScript are floating-point numbers in the range [0.0, 1.0], where 0.0 represents minimum intensity and 1.0 represents maximum intensity.
+
+== Module Overview
+
+The [`Colors`](../../lib/postsvg/colors.rb:4) module is defined in [`lib/postsvg/colors.rb`](../../lib/postsvg/colors.rb:1).
+
+**Responsibilities:**
+
+* Convert PostScript RGB values to SVG RGB strings
+* Convert PostScript grayscale values to SVG RGB strings
+* Convert PostScript CMYK values to SVG RGB strings
+* Clamp color values to valid ranges
+* Format color output for SVG compatibility
+
+**Design Characteristics:**
+
+* Pure utility module (no state)
+* All methods are class methods
+* Defensive clamping of color values
+* Consistent output format
+
+== Module Methods
+
+=== color2rgb
+
+Convert PostScript RGB values to SVG RGB color string.
+
+**Syntax:**
+
+[source,ruby]
+----
+rgb_string = Postsvg::Colors.color2rgb(rgb) <1>
+----
+<1> Convert PostScript RGB array to SVG color string
+
+**Where:**
+
+`rgb`:: Array of three floating-point values `[r, g, b]` where:
+* `r` - Red component (0.0 to 1.0)
+* `g` - Green component (0.0 to 1.0)
+* `b` - Blue component (0.0 to 1.0)
+
+**Returns:**
+
+String in format `"rgb(R, G, B)"` where R, G, B are integers 0-255
+
+**Clamping Behavior:**
+
+* Values < 0.0 are clamped to 0
+* Values > 1.0 are clamped to 255
+* Values are multiplied by 255 and rounded to integers
+
+**Source:**
+
+[`lib/postsvg/colors.rb:7-13`](../../lib/postsvg/colors.rb:7)
+
+.Convert pure colors
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Pure red
+red = Postsvg::Colors.color2rgb([1.0, 0.0, 0.0])
+puts red  # → "rgb(255, 0, 0)"
+
+# Pure green
+green = Postsvg::Colors.color2rgb([0.0, 1.0, 0.0])
+puts green  # → "rgb(0, 255, 0)"
+
+# Pure blue
+blue = Postsvg::Colors.color2rgb([0.0, 0.0, 1.0])
+puts blue  # → "rgb(0, 0, 255)"
+
+# Black
+black = Postsvg::Colors.color2rgb([0.0, 0.0, 0.0])
+puts black  # → "rgb(0, 0, 0)"
+
+# White
+white = Postsvg::Colors.color2rgb([1.0, 1.0, 1.0])
+puts white  # → "rgb(255, 255, 255)"
+----
+====
+
+.Convert intermediate colors
+[example]
+====
+[source,ruby]
+----
+# Orange (mix of red and green)
+orange = Postsvg::Colors.color2rgb([1.0, 0.5, 0.0])
+puts orange  # → "rgb(255, 128, 0)"
+
+# Purple (mix of red and blue)
+purple = Postsvg::Colors.color2rgb([0.5, 0.0, 0.5])
+puts purple  # → "rgb(128, 0, 128)"
+
+# Gray
+gray = Postsvg::Colors.color2rgb([0.5, 0.5, 0.5])
+puts gray  # → "rgb(128, 128, 128)"
+
+# Pastel pink
+pink = Postsvg::Colors.color2rgb([1.0, 0.75, 0.8])
+puts pink  # → "rgb(255, 191, 204)"
+----
+====
+
+.Value clamping
+[example]
+====
+[source,ruby]
+----
+# Values > 1.0 are clamped
+over = Postsvg::Colors.color2rgb([1.5, 1.2, 1.0])
+puts over  # → "rgb(255, 255, 255)"
+
+# Values < 0.0 are clamped
+under = Postsvg::Colors.color2rgb([-0.5, 0.5, 0.2])
+puts under  # → "rgb(0, 128, 51)"
+
+# Mixed clamping
+mixed = Postsvg::Colors.color2rgb([1.2, -0.1, 0.5])
+puts mixed  # → "rgb(255, 0, 128)"
+----
+====
+
+.Use in graphics state
+[example]
+====
+[source,ruby]
+----
+# Typical usage in graphics processing
+postscript_color = [0.8, 0.2, 0.4]  # PostScript RGB
+
+# Convert for SVG
+svg_color = Postsvg::Colors.color2rgb(postscript_color)
+
+# Use in SVG path
+svg = %Q{<path fill="#{svg_color}" d="M 10 10 L 50 50"/>}
+# → <path fill="rgb(204, 51, 102)" d="M 10 10 L 50 50"/>
+----
+====
+
+=== gray2rgb
+
+Convert PostScript grayscale value to SVG RGB color string.
+
+**Syntax:**
+
+[source,ruby]
+----
+rgb_string = Postsvg::Colors.gray2rgb(gray) <1>
+----
+<1> Convert PostScript grayscale to SVG color string
+
+**Where:**
+
+`gray`:: Floating-point value (0.0 to 1.0) where:
+* `0.0` - Black
+* `0.5` - Middle gray
+* `1.0` - White
+
+**Returns:**
+
+String in format `"rgb(V, V, V)"` where V is an integer 0-255 (same value for R, G, and B)
+
+**Clamping Behavior:**
+
+* Values < 0.0 are clamped to 0
+* Values > 1.0 are clamped to 255
+* Value is multiplied by 255 and rounded to integer
+
+**Source:**
+
+[`lib/postsvg/colors.rb:16-19`](../../lib/postsvg/colors.rb:16)
+
+.Convert grayscale values
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Black
+black = Postsvg::Colors.gray2rgb(0.0)
+puts black  # → "rgb(0, 0, 0)"
+
+# White
+white = Postsvg::Colors.gray2rgb(1.0)
+puts white  # → "rgb(255, 255, 255)"
+
+# 50% gray
+gray50 = Postsvg::Colors.gray2rgb(0.5)
+puts gray50  # → "rgb(128, 128, 128)"
+
+# 25% gray (dark)
+gray25 = Postsvg::Colors.gray2rgb(0.25)
+puts gray25  # → "rgb(64, 64, 64)"
+
+# 75% gray (light)
+gray75 = Postsvg::Colors.gray2rgb(0.75)
+puts gray75  # → "rgb(191, 191, 191)"
+----
+====
+
+.Gradient examples
+[example]
+====
+[source,ruby]
+----
+# Create grayscale gradient
+gradient = (0..10).map do |i|
+  value = i / 10.0
+  Postsvg::Colors.gray2rgb(value)
+end
+
+puts gradient.join("\n")
+# → rgb(0, 0, 0)
+# → rgb(26, 26, 26)
+# → rgb(51, 51, 51)
+# → ...
+# → rgb(255, 255, 255)
+----
+====
+
+.Clamping behavior
+[example]
+====
+[source,ruby]
+----
+# Over maximum
+over = Postsvg::Colors.gray2rgb(1.5)
+puts over  # → "rgb(255, 255, 255)"
+
+# Under minimum
+under = Postsvg::Colors.gray2rgb(-0.5)
+puts under  # → "rgb(0, 0, 0)"
+----
+====
+
+=== cmyk2rgb
+
+Convert PostScript CMYK values to SVG RGB color string.
+
+**Syntax:**
+
+[source,ruby]
+----
+rgb_string = Postsvg::Colors.cmyk2rgb(cmyk) <1>
+----
+<1> Convert PostScript CMYK array to SVG color string
+
+**Where:**
+
+`cmyk`:: Array of four floating-point values `[c, m, y, k]` where:
+* `c` - Cyan component (0.0 to 1.0)
+* `m` - Magenta component (0.0 to 1.0)
+* `y` - Yellow component (0.0 to 1.0)
+* `k` - Black (Key) component (0.0 to 1.0)
+
+**Returns:**
+
+String in format `"rgb(R, G, B)"` where R, G, B are integers 0-255
+
+**Conversion Formula:**
+
+```
+R = 255 × (1 - C) × (1 - K)
+G = 255 × (1 - M) × (1 - K)
+B = 255 × (1 - Y) × (1 - K)
+```
+
+**Clamping Behavior:**
+
+* Each component is clamped to [0.0, 1.0] range
+* Resulting RGB values are clamped to [0, 255] and rounded
+
+**Source:**
+
+[`lib/postsvg/colors.rb:22-31`](../../lib/postsvg/colors.rb:22)
+
+.Convert pure CMYK colors
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+
+# Cyan (C=1, M=0, Y=0, K=0)
+cyan = Postsvg::Colors.cmyk2rgb([1.0, 0.0, 0.0, 0.0])
+puts cyan  # → "rgb(0, 255, 255)"
+
+# Magenta (C=0, M=1, Y=0, K=0)
+magenta = Postsvg::Colors.cmyk2rgb([0.0, 1.0, 0.0, 0.0])
+puts magenta  # → "rgb(255, 0, 255)"
+
+# Yellow (C=0, M=0, Y=1, K=0)
+yellow = Postsvg::Colors.cmyk2rgb([0.0, 0.0, 1.0, 0.0])
+puts yellow  # → "rgb(255, 255, 0)"
+
+# Black (K=1)
+black = Postsvg::Colors.cmyk2rgb([0.0, 0.0, 0.0, 1.0])
+puts black  # → "rgb(0, 0, 0)"
+
+# White (all zeros)
+white = Postsvg::Colors.cmyk2rgb([0.0, 0.0, 0.0, 0.0])
+puts white  # → "rgb(255, 255, 255)"
+----
+====
+
+.Convert mixed CMYK colors
+[example]
+====
+[source,ruby]
+----
+# Red (M=1, Y=1)
+red = Postsvg::Colors.cmyk2rgb([0.0, 1.0, 1.0, 0.0])
+puts red  # → "rgb(255, 0, 0)"
+
+# Green (C=1, Y=1)
+green = Postsvg::Colors.cmyk2rgb([1.0, 0.0, 1.0, 0.0])
+puts green  # → "rgb(0, 255, 0)"
+
+# Blue (C=1, M=1)
+blue = Postsvg::Colors.cmyk2rgb([1.0, 1.0, 0.0, 0.0])
+puts blue  # → "rgb(0, 0, 255)"
+
+# Orange (M=0.5, Y=1)
+orange = Postsvg::Colors.cmyk2rgb([0.0, 0.5, 1.0, 0.0])
+puts orange  # → "rgb(255, 128, 0)"
+----
+====
+
+.Effect of black component (K)
+[example]
+====
+[source,ruby]
+----
+# Pure cyan with varying black
+cyan_light = Postsvg::Colors.cmyk2rgb([1.0, 0.0, 0.0, 0.0])
+puts cyan_light  # → "rgb(0, 255, 255)" - Full brightness
+
+cyan_dark = Postsvg::Colors.cmyk2rgb([1.0, 0.0, 0.0, 0.5])
+puts cyan_dark  # → "rgb(0, 128, 128)" - 50% darker
+
+cyan_black = Postsvg::Colors.cmyk2rgb([1.0, 0.0, 0.0, 1.0])
+puts cyan_black  # → "rgb(0, 0, 0)" - Completely black
+
+# The K component darkens all colors proportionally
+----
+====
+
+.Typical print colors
+[example]
+====
+[source,ruby]
+----
+# Common printing colors
+process_blue = Postsvg::Colors.cmyk2rgb([1.0, 0.72, 0.0, 0.0])
+puts process_blue  # → "rgb(0, 71, 255)"
+
+pantone_red = Postsvg::Colors.cmyk2rgb([0.0, 0.91, 0.76, 0.0])
+puts pantone_red  # → "rgb(255, 23, 61)"
+
+rich_black = Postsvg::Colors.cmyk2rgb([0.6, 0.4, 0.4, 1.0])
+puts rich_black  # → "rgb(0, 0, 0)"
+----
+====
+
+== Usage Patterns
+
+=== Pattern 1: Color Space Detection
+
+[source,ruby]
+----
+require 'postsvg'
+
+def convert_postscript_color(color)
+  case color.length
+  when 1
+    # Grayscale
+    Postsvg::Colors.gray2rgb(color[0])
+  when 3
+    # RGB
+    Postsvg::Colors.color2rgb(color)
+  when 4
+    # CMYK
+    Postsvg::Colors.cmyk2rgb(color)
+  else
+    raise ArgumentError, "Unknown color format: #{color.inspect}"
+  end
+end
+
+# Usage
+puts convert_postscript_color([0.5])              # Gray
+puts convert_postscript_color([1.0, 0.0, 0.0])    # RGB
+puts convert_postscript_color([0.0, 1.0, 1.0, 0.0])  # CMYK
+----
+
+=== Pattern 2: Color Palette Generator
+
+[source,ruby]
+----
+require 'postsvg'
+
+class ColorPalette
+  def self.grayscale_ramp(steps = 10)
+    (0..steps).map do |i|
+      value = i.to_f / steps
+      Postsvg::Colors.gray2rgb(value)
+    end
+  end
+
+  def self.rgb_primaries(intensity = 1.0)
+    {
+      red: Postsvg::Colors.color2rgb([intensity, 0, 0]),
+      green: Postsvg::Colors.color2rgb([0, intensity, 0]),
+      blue: Postsvg::Colors.color2rgb([0, 0, intensity])
+    }
+  end
+
+  def self.cmyk_primaries
+    {
+      cyan: Postsvg::Colors.cmyk2rgb([1, 0, 0, 0]),
+      magenta: Postsvg::Colors.cmyk2rgb([0, 1, 0, 0]),
+      yellow: Postsvg::Colors.cmyk2rgb([0, 0, 1, 0]),
+      black: Postsvg::Colors.cmyk2rgb([0, 0, 0, 1])
+    }
+  end
+end
+
+# Generate grayscale ramp
+grays = ColorPalette.grayscale_ramp(5)
+puts grays.join(", ")
+
+# Get primary colors
+primaries = ColorPalette.rgb_primaries(0.8)
+puts primaries.inspect
+----
+
+=== Pattern 3: Color Validation and Normalization
+
+[source,ruby]
+----
+require 'postsvg'
+
+class ColorValidator
+  def self.normalize_rgb(values)
+    # Ensure values are in [0.0, 1.0] range
+    normalized = values.map { |v| [[v, 0.0].max, 1.0].min }
+    Postsvg::Colors.color2rgb(normalized)
+  end
+
+  def self.normalize_cmyk(values)
+    # Ensure values are in [0.0, 1.0] range
+    normalized = values.map { |v| [[v, 0.0].max, 1.0].min }
+    Postsvg::Colors.cmyk2rgb(normalized)
+  end
+
+  def self.validate_and_convert(color_space, values)
+    case color_space
+    when :rgb
+      raise ArgumentError unless values.length == 3
+      normalize_rgb(values)
+    when :cmyk
+      raise ArgumentError unless values.length == 4
+      normalize_cmyk(values)
+    when :gray
+      raise ArgumentError unless values.length == 1
+      gray = [[values[0], 0.0].max, 1.0].min
+      Postsvg::Colors.gray2rgb(gray)
+    else
+      raise ArgumentError, "Unknown color space: #{color_space}"
+    end
+  end
+end
+
+# Usage with validation
+safe_color = ColorValidator.validate_and_convert(:rgb, [0.8, 0.2, 0.5])
+puts safe_color
+----
+
+=== Pattern 4: Color Conversion Pipeline
+
+[source,ruby]
+----
+require 'postsvg'
+
+class PostScriptColorProcessor
+  def initialize
+    @conversions = 0
+  end
+
+  def process_colors(graphics_operations)
+    graphics_operations.map do |op|
+      converted_op = op.dup
+
+      if op[:stroke_color]
+        converted_op[:stroke_svg] = convert_color(
+          op[:stroke_color],
+          op[:stroke_color_space]
+        )
+        @conversions += 1
+      end
+
+      if op[:fill_color]
+        converted_op[:fill_svg] = convert_color(
+          op[:fill_color],
+          op[:fill_color_space]
+        )
+        @conversions += 1
+      end
+
+      converted_op
+    end
+  end
+
+  def convert_color(color, color_space)
+    case color_space
+    when :DeviceRGB
+      Postsvg::Colors.color2rgb(color)
+    when :DeviceGray
+      Postsvg::Colors.gray2rgb(color[0])
+    when :DeviceCMYK
+      Postsvg::Colors.cmyk2rgb(color)
+    else
+      # Default to RGB
+      Postsvg::Colors.color2rgb(color)
+    end
+  end
+
+  def stats
+    { conversions: @conversions }
+  end
+end
+
+# Process graphics operations
+processor = PostScriptColorProcessor.new
+operations = [
+  { stroke_color: [1, 0, 0], stroke_color_space: :DeviceRGB },
+  { fill_color: [0, 1, 0, 0], fill_color_space: :DeviceCMYK }
+]
+
+result = processor.process_colors(operations)
+puts result.inspect
+puts "Converted #{processor.stats[:conversions]} colors"
+----
+
+== Thread Safety
+
+The `Colors` module is **completely thread-safe** because:
+
+1. All methods are stateless class methods
+2. No shared mutable state
+3. No side effects
+4. Pure functions (same input → same output)
+
+.Thread-safe usage
+[example]
+====
+[source,ruby]
+----
+# Safe: Can be called from multiple threads
+threads = 1000.times.map do |i|
+  Thread.new do
+    r = (i % 256) / 255.0
+    g = ((i * 2) % 256) / 255.0
+    b = ((i * 3) % 256) / 255.0
+
+    Postsvg::Colors.color2rgb([r, g, b])
+  end
+end
+
+results = threads.map(&:value)
+puts "Converted #{results.length} colors concurrently"
+----
+====
+
+== Performance Considerations
+
+**Time Complexity:**
+
+* `color2rgb`: O(1) - 3 multiplications, 3 min/max operations
+* `gray2rgb`: O(1) - 1 multiplication, min/max operations
+* `cmyk2rgb`: O(1) - 12 multiplications, 3 min/max operations
+
+**Space Complexity:**
+
+* All methods: O(1) - constant space
+* Returns single string
+
+**Performance Characteristics:**
+
+* Extremely fast operations
+* No memory allocation except result string
+* No expensive computations
+* Safe for high-frequency calls
+
+.Performance measurement
+[example]
+====
+[source,ruby]
+----
+require 'postsvg'
+require 'benchmark'
+
+iterations = 100_000
+
+rgb_time = Benchmark.measure do
+  iterations.times do |i|
+    Postsvg::Colors.color2rgb([0.5, 0.3, 0.8])
+  end
+end
+
+cmyk_time = Benchmark.measure do
+  iterations.times do |i|
+    Postsvg::Colors.cmyk2rgb([0.5, 0.3, 0.8, 0.1])
+  end
+end
+
+puts "RGB conversions: #{iterations} in #{'%.3f' % rgb_time.real}s"
+puts "Rate: #{(iterations / rgb_time.real).to_i} conversions/sec"
+
+puts "CMYK conversions: #{iterations} in #{'%.3f' % cmyk_time.real}s"
+puts "Rate: #{(iterations / cmyk_time.real).to_i} conversions/sec"
+----
+====
+
+**Optimization Tips:**
+
+1. **Cache results**: If converting same color repeatedly, cache the result
+2. **Batch processing**: Process multiple colors in sequence for better CPU cache utilization
+3. **No premature optimization needed**: These methods are already very fast
+
+== Color Accuracy Notes
+
+**CMYK to RGB Conversion:**
+
+The CMYK to RGB conversion uses a simplified formula that works well for display but may not match print output exactly:
+
+* ✅ Good for: Display, web graphics, previews
+* ⚠️ Limited for: Professional printing, color matching
+
+For more accurate color conversion, consider:
+* ICC color profiles
+* Color management systems
+* Professional color libraries
+
+**Grayscale Conversion:**
+
+The grayscale conversion creates neutral grays (R=G=B). For perceptual grayscale from RGB, consider using luminance formulas:
+
+```
+Luminance = 0.299*R + 0.587*G + 0.114*B
+```
+
+**Value Clamping:**
+
+All methods clamp values to valid ranges. This is defensive but may hide issues in source data. Consider validating color values before conversion if accuracy is critical.
+
+== Next Steps
+
+* Learn about link:graphics-state.adoc[GraphicsState] which uses these color conversions
+* Review link:svg-generator.adoc[SvgGenerator] for how colors are applied to SVG
+* See link:interpreter.adoc[Interpreter] for PostScript color command handling
+* Check link:../architecture.adoc[Architecture] for system design
+
+== Bibliography
+
+* link:graphics-state.adoc[GraphicsState Documentation]
+* link:svg-generator.adoc[SvgGenerator Documentation]
+* link:interpreter.adoc[Interpreter Documentation]
+* link:../architecture.adoc[Architecture Overview]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual - Color Spaces]
+* link:https://www.w3.org/TR/css-color-3/[W3C CSS Color Module Level 3]
+* link:https://en.wikipedia.org/wiki/CMYK_color_model[Wikipedia: CMYK Color Model]
+* link:https://en.wikipedia.org/wiki/RGB_color_model[Wikipedia: RGB Color Model]

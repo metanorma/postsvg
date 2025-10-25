@@ -1,0 +1,453 @@
+= Quick Reference
+:page-nav_order: 12
+
+== Purpose
+
+This quick reference provides fast access to the most commonly used Postsvg commands, API methods, and workflows. Perfect for experienced users who need a quick reminder.
+
+== Installation
+
+[source,sh]
+----
+# Via RubyGems
+gem install postsvg
+
+# Via Bundler - add to Gemfile
+gem 'postsvg'
+bundle install
+----
+
+== Command-Line Interface
+
+=== Convert Commands
+
+[source,sh]
+----
+# Convert single file
+postsvg convert input.ps output.svg
+
+# Convert to stdout
+postsvg convert input.ps > output.svg
+
+# Batch convert directory
+postsvg batch input_dir/ output_dir/
+
+# Convert in place
+postsvg batch files/
+----
+
+=== Validation Commands
+
+[source,sh]
+----
+# Basic validation
+postsvg check document.ps
+
+# Syntax only (fast)
+postsvg check --level=syntax document.ps
+
+# Full validation (complete conversion test)
+postsvg check --level=full document.ps
+
+# Multiple files
+postsvg check *.ps
+
+# JSON output for CI/CD
+postsvg check --format=json --no-color document.ps
+----
+
+=== Common Options
+
+[cols="1,3"]
+|===
+| Option | Description
+
+| `--strict`
+| Enable strict mode (fail on unknown operators)
+
+| `--verbose`
+| Show detailed information
+
+| `--quiet`
+| Suppress success messages
+
+| `--no-color`
+| Disable colored output
+
+| `--fail-fast`
+| Stop at first error
+
+| `--level=LEVEL`
+| Validation level: syntax, semantic, full
+
+| `--format=FORMAT`
+| Output format: text, yaml, json
+
+| `--eps-version=VER`
+| Validate EPS version (1.0, 2.0, 3.0)
+|===
+
+== Ruby API
+
+=== Module Methods
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Convert content
+svg = Postsvg.convert(ps_content)
+
+# Convert file
+Postsvg.convert_file('input.ps', 'output.svg')
+
+# Get SVG without saving
+svg = Postsvg.convert_file('input.ps')
+----
+
+=== Converter Class
+
+[source,ruby]
+----
+require 'postsvg'
+
+# Basic conversion
+converter = Postsvg::Converter.new(ps_content)
+svg = converter.convert
+
+# With strict mode
+converter = Postsvg::Converter.new(
+  ps_content,
+  strict_mode: true
+)
+svg = converter.convert
+----
+
+=== Error Handling
+
+[source,ruby]
+----
+begin
+  svg = Postsvg.convert(ps_content)
+rescue Postsvg::ParseError => e
+  puts "Parse error: #{e.message}"
+rescue Postsvg::ConversionError => e
+  puts "Conversion error: #{e.message}"
+rescue Postsvg::Error => e
+  puts "Error: #{e.message}"
+end
+----
+
+== Common Workflows
+
+=== Validate Then Convert
+
+[source,sh]
+----
+# Shell script
+if postsvg check document.ps; then
+  postsvg convert document.ps document.svg
+fi
+----
+
+[source,ruby]
+----
+# Ruby script
+if system("postsvg check #{file}")
+  Postsvg.convert_file(file, output)
+end
+----
+
+=== Batch Processing
+
+[source,ruby]
+----
+Dir.glob('*.ps').each do |file|
+  begin
+    Postsvg.convert_file(file, file.sub('.ps', '.svg'))
+    puts "✓ #{file}"
+  rescue => e
+    puts "✗ #{file}: #{e.message}"
+  end
+end
+----
+
+=== CI/CD Integration
+
+**GitHub Actions:**
+[source,yaml]
+----
+- uses: ruby/setup-ruby@v1
+  with:
+    ruby-version: '3.2'
+- run: gem install postsvg
+- run: postsvg check --format=json *.ps
+----
+
+**GitLab CI:**
+[source,yaml]
+----
+validate:
+  image: ruby:3.2
+  script:
+    - gem install postsvg
+    - postsvg check --level=full *.ps
+----
+
+== PostScript Basics
+
+=== File Structure
+
+[source,postscript]
+----
+%!PS-Adobe-3.0 EPSF-3.0              # Header
+%%BoundingBox: 0 0 612 792            # Required for EPS
+%%Title: My Document                  # Optional metadata
+
+% Your PostScript commands here
+newpath
+100 100 moveto
+200 200 lineto
+stroke
+
+showpage                              # End
+----
+
+=== Common Operations
+
+**Path Construction:**
+[source,postscript]
+----
+newpath              % Start new path
+x y moveto           % Move to point
+x y lineto           % Line to point
+x y r a1 a2 arc      % Arc
+closepath            % Close path
+----
+
+**Painting:**
+[source,postscript]
+----
+stroke               % Draw path outline
+fill                 % Fill path interior
+eofill               % Even-odd fill
+clip                 % Set clipping path
+----
+
+**Colors:**
+[source,postscript]
+----
+r g b setrgbcolor    % RGB (0-1)
+gray setgray         % Grayscale (0-1)
+c m y k setcmykcolor % CMYK (0-1)
+----
+
+**Transformations:**
+[source,postscript]
+----
+dx dy translate      % Move origin
+sx sy scale          % Scale coordinates
+angle rotate         % Rotate (degrees)
+----
+
+**Graphics State:**
+[source,postscript]
+----
+gsave                % Save state
+grestore             % Restore state
+width setlinewidth   % Set line width
+----
+
+== Supported Features
+
+✅ **Fully Supported:**
+- Path construction (moveto, lineto, curveto)
+- Basic painting (stroke, fill)
+- RGB and grayscale colors
+- Coordinate transformations
+- Graphics state management
+- Stack operations
+
+⚠️ **Partially Supported:**
+- CMYK colors (converted to RGB)
+- Basic clipping paths
+
+❌ **Not Yet Supported:**
+- Text rendering
+- Gradients and patterns
+- Raster images
+- Advanced Level 2/3 features
+
+== Troubleshooting
+
+**Command not found:**
+[source,sh]
+----
+export PATH="$PATH:$(gem environment gemdir)/bin"
+----
+
+**Empty SVG output:**
+- Check BoundingBox is present
+- Ensure paths are stroked or filled
+- Validate with `postsvg check --level=full`
+
+**Unknown operator error:**
+- Disable strict mode in Ruby API
+- Check operator support in documentation
+- Report missing operators as feature request
+
+**Memory issues:**
+[source,ruby]
+----
+# Process in batches
+files.each_slice(10) do |batch|
+  batch.each { |f| convert(f) }
+  GC.start
+end
+----
+
+## File Formats
+
+**Input Formats:**
+- `.ps` - PostScript files
+- `.eps` - Encapsulated PostScript files
+
+**Output Format:**
+- `.svg` - Scalable Vector Graphics (XML-based)
+
+**BoundingBox Formats:**
+[source,postscript]
+----
+%%BoundingBox: 0 0 612 792          # Standard
+%%BoundingBox: (atend)              # Deferred
+%%HiResBoundingBox: 0.0 0.0 612.5 792.5  # High-res
+----
+
+## Environment Variables
+
+**Ruby Version:**
+[source,sh]
+----
+ruby -v              # Check version (need 2.7+)
+----
+
+**Gem Paths:**
+[source,sh]
+----
+gem environment      # Show all gem paths
+which postsvg        # Show postsvg location
+----
+
+## Performance Tips
+
+**For Large Files:**
+- Process sequentially with GC
+- Monitor memory usage
+- Consider chunking if possible
+
+**For Batch Operations:**
+- Use batch command for directories
+- Process in slices for many files
+- Log errors for later review
+
+**For Production:**
+- Cache converted files
+- Validate before conversion
+- Use strict mode in development only
+
+== Exit Codes
+
+[cols="1,3"]
+|===
+| Code | Meaning
+
+| 0
+| Success - operation completed
+
+| 1
+| Failure - errors occurred
+|===
+
+== Common Patterns
+
+**Safe Conversion:**
+[source,ruby]
+----
+def safe_convert(input, output)
+  Postsvg.convert_file(input, output)
+  true
+rescue => e
+  puts "Error: #{e.message}"
+  false
+end
+----
+
+**With Validation:**
+[source,ruby]
+----
+def convert_if_valid(file)
+  return unless system("postsvg check #{file}")
+  Postsvg.convert_file(file, file.sub('.ps', '.svg'))
+end
+----
+
+**Batch with Stats:**
+[source,ruby]
+----
+stats = { success: 0, failed: 0 }
+Dir.glob('*.ps').each do |f|
+  Postsvg.convert_file(f, f.sub('.ps', '.svg'))
+  stats[:success] += 1
+rescue
+  stats[:failed] += 1
+end
+puts "Success: #{stats[:success]}, Failed: #{stats[:failed]}"
+----
+
+== Resource Links
+
+**Documentation:**
+- link:getting-started.adoc[Getting Started Guide]
+- link:api-reference.adoc[Complete API Reference]
+- link:cli-reference.adoc[CLI Command Reference]
+- link:troubleshooting.adoc[Troubleshooting Guide]
+
+**External Resources:**
+- link:https://rubygems.org/gems/postsvg[Postsvg on RubyGems]
+- link:https://github.com/metanorma/postsvg[GitHub Repository]
+- link:https://www.adobe.com/products/postscript/pdfs/PLRM.pdf[PostScript Language Reference]
+
+== Version Information
+
+Check your Postsvg version:
+[source,sh]
+----
+postsvg version
+# Output: postsvg version 0.1.0
+----
+
+Check gem information:
+[source,sh]
+----
+gem list postsvg
+gem info postsvg
+----
+
+== Getting Help
+
+1. Check link:troubleshooting.adoc[Troubleshooting Guide]
+2. Review link:faq.adoc[FAQ]
+3. Search link:https://github.com/metanorma/postsvg/issues[GitHub Issues]
+4. Create new issue if needed
+
+== Next Steps
+
+**New Users:**
+- link:getting-started/installation.adoc[Install Postsvg]
+- link:getting-started/first-conversion.adoc[First Conversion Tutorial]
+- link:getting-started/basic-usage.adoc[Learn Basic Usage]
+
+**Experienced Users:**
+- link:advanced-topics.adoc[Advanced Topics]
+- link:api-reference.adoc[Full API Reference]
+- link:development.adoc[Contributing Guide]

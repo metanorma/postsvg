@@ -1,0 +1,577 @@
+= Common Workflows
+:page-nav_order: 4
+:page-parent: Getting Started
+
+== Purpose
+
+This guide demonstrates common real-world workflows for using Postsvg in various scenarios. Each workflow includes complete, tested examples that you can adapt to your needs.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../getting-started.adoc[Getting Started Overview]
+* link:basic-usage.adoc[Basic Usage]
+* link:first-conversion.adoc[First Conversion Tutorial]
+* link:../api-reference.adoc[API Reference]
+
+== Concepts
+
+**Workflow**:: A sequence of steps to accomplish a specific task using Postsvg.
+
+**Batch Processing**:: Converting multiple files in an automated manner.
+
+**Validation Pipeline**:: Checking files before conversion to ensure quality.
+
+**Error Handling**:: Gracefully handling conversion failures and partial successes.
+
+== Workflow 1: Single File Conversion with Validation
+
+Convert a single file after validating it first.
+
+[source,sh]
+----
+#!/bin/bash
+# validate-and-convert.sh
+
+INPUT="document.ps"
+OUTPUT="document.svg"
+
+# Step 1: Validate
+echo "Validating $INPUT..."
+if postsvg check --level=semantic "$INPUT"; then
+  echo "✓ Validation passed"
+
+  # Step 2: Convert
+  echo "Converting to SVG..."
+  if postsvg convert "$INPUT" "$OUTPUT"; then
+    echo "✓ Conversion complete: $OUTPUT"
+  else
+    echo "✗ Conversion failed"
+    exit 1
+  fi
+else
+  echo "✗ Validation failed"
+  exit 1
+fi
+----
+
+**Usage:**
+[source,sh]
+----
+chmod +x validate-and-convert.sh
+./validate-and-convert.sh
+----
+
+== Workflow 2: Batch Conversion with Error Logging
+
+Convert multiple files and log errors for later review.
+
+[source,ruby]
+----
+#!/usr/bin/env ruby
+# batch-convert.rb
+
+require 'postsvg'
+require 'logger'
+
+# Setup logging
+logger = Logger.new('conversion.log')
+logger.info "Batch conversion started"
+
+# Find all PS files
+ps_files = Dir.glob('input/*.{ps,eps}', File::FNM_CASEFOLD)
+logger.info "Found #{ps_files.size} files to convert"
+
+# Track statistics
+stats = { success: 0, failed: 0, partial: 0 }
+
+# Convert each file
+ps_files.each do |input_file|
+  output_file = input_file.sub(/\.(ps|eps)$/i, '.svg')
+                         .sub('input/', 'output/')
+
+  begin
+    # Try strict conversion first
+    converter = Postsvg::Converter.new(
+      File.read(input_file),
+      strict_mode: true
+    )
+    svg = converter.convert
+    File.write(output_file, svg)
+
+    stats[:success] += 1
+    logger.info "✓ #{input_file} → #{output_file}"
+    puts "✓ #{File.basename(input_file)}"
+
+  rescue Postsvg::Error => e
+    # Try lenient mode
+    begin
+      converter = Postsvg::Converter.new(
+        File.read(input_file),
+        strict_mode: false
+      )
+      svg = converter.convert
+      File.write(output_file, svg)
+
+      stats[:partial] += 1
+      logger.warn "⚠ #{input_file}: #{e.message} (used lenient mode)"
+      puts "⚠ #{File.basename(input_file)} (partial)"
+
+    rescue StandardError => e2
+      stats[:failed] += 1
+      logger.error "✗ #{input_file}: #{e2.message}"
+      puts "✗ #{File.basename(input_file)}"
+    end
+  end
+end
+
+# Summary
+logger.info "Conversion complete: #{stats[:success]} success, " \
+            "#{stats[:partial]} partial, #{stats[:failed]} failed"
+puts "\nSummary:"
+puts "  Success: #{stats[:success]}"
+puts "  Partial: #{stats[:partial]}"
+puts "  Failed:  #{stats[:failed]}"
+puts "\nSee conversion.log for details"
+----
+
+**Usage:**
+[source,sh]
+----
+chmod +x batch-convert.rb
+./batch-convert.rb
+----
+
+== Workflow 3: CI/CD Integration
+
+Validate PostScript files in a continuous integration pipeline.
+
+**GitHub Actions:**
+
+[source,yaml]
+----
+# .github/workflows/validate-ps.yml
+name: Validate PostScript Files
+
+on:
+  pull_request:
+    paths:
+      - '**.ps'
+      - '**.eps'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install Postsvg
+        run: gem install postsvg
+
+      - name: Find PostScript files
+        id: find-files
+        run: |
+          FILES=$(find . -name "*.ps" -o -name "*.eps" | tr '\n' ' ')
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+
+      - name: Validate files
+        run: |
+          postsvg check --format=json --no-color \
+            --level=full --fail-fast \
+            ${{ steps.find-files.outputs.files }}
+
+      - name: Convert files
+        if: success()
+        run: |
+          for file in ${{ steps.find-files.outputs.files }}; do
+            postsvg convert "$file" "${file%.*}.svg"
+          done
+
+      - name: Upload SVG artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: svg-files
+          path: '**/*.svg'
+----
+
+**GitLab CI:**
+
+[source,yaml]
+----
+# .gitlab-ci.yml
+validate-ps:
+  image: ruby:3.2
+  stage: test
+  script:
+    - gem install postsvg
+    - find . -name "*.ps" -o -name "*.eps" |
+      xargs postsvg check --format=json --level=full
+  only:
+    changes:
+      - "**/*.ps"
+      - "**/*.eps"
+
+convert-ps:
+  image: ruby:3.2
+  stage: build
+  script:
+    - gem install postsvg
+    - |
+      for file in $(find . -name "*.ps" -o -name "*.eps"); do
+        postsvg convert "$file" "${file%.*}.svg"
+      done
+  artifacts:
+    paths:
+      - "**/*.svg"
+    expire_in: 1 week
+  only:
+    changes:
+      - "**/*.ps"
+      - "**/*.eps"
+----
+
+== Workflow 4: Rails Integration
+
+Integrate Postsvg into a Rails application for on-demand conversion.
+
+**Service Object:**
+
+[source,ruby]
+----
+# app/services/postscript_converter_service.rb
+class PostscriptConverterService
+  class ConversionError < StandardError; end
+
+  def initialize(file_or_content, options = {})
+    @content = file_or_content.is_a?(String) ?
+                 file_or_content :
+                 file_or_content.read
+    @options = options
+  end
+
+  def convert
+    validator = validate_content
+    raise ConversionError, validator[:errors].join(', ') unless validator[:valid]
+
+    converter = Postsvg::Converter.new(@content, strict_mode: @options[:strict])
+    svg_content = converter.convert
+
+    {
+      success: true,
+      svg: svg_content,
+      size: svg_content.bytesize,
+      validated: true
+    }
+  rescue Postsvg::Error => e
+    {
+      success: false,
+      error: e.message,
+      error_type: e.class.name
+    }
+  end
+
+  private
+
+  def validate_content
+    # Basic validation
+    return { valid: false, errors: ['Empty content'] } if @content.empty?
+    return { valid: false, errors: ['Not PostScript'] } unless postscript?
+
+    { valid: true, errors: [] }
+  end
+
+  def postscript?
+    @content.start_with?('%!PS') || @content.start_with?('%!<')
+  end
+end
+----
+
+**Controller:**
+
+[source,ruby]
+----
+# app/controllers/conversions_controller.rb
+class ConversionsController < ApplicationController
+  def create
+    uploaded_file = params[:file]
+
+    result = PostscriptConverterService.new(
+      uploaded_file,
+      strict: params[:strict] == 'true'
+    ).convert
+
+    if result[:success]
+      send_data result[:svg],
+                filename: "#{uploaded_file.original_filename.sub(/\.(ps|eps)$/i, '')}.svg",
+                type: 'image/svg+xml',
+                disposition: 'attachment'
+    else
+      flash[:error] = "Conversion failed: #{result[:error]}"
+      redirect_to root_path
+    end
+  end
+end
+----
+
+**View:**
+
+[source,erb]
+----
+<!-- app/views/conversions/new.html.erb -->
+<%= form_with url: conversions_path, multipart: true do |f| %>
+  <div class="field">
+    <%= f.label :file, "PostScript File" %>
+    <%= f.file_field :file, accept: '.ps,.eps' %>
+  </div>
+
+  <div class="field">
+    <%= f.check_box :strict %>
+    <%= f.label :strict, "Strict Mode (fail on unknown operators)" %>
+  </div>
+
+  <%= f.submit "Convert to SVG" %>
+<% end %>
+----
+
+== Workflow 5: Automated Directory Watch
+
+Automatically convert PostScript files when they appear in a directory.
+
+[source,ruby]
+----
+#!/usr/bin/env ruby
+# ps-watcher.rb
+
+require 'postsvg'
+require 'listen'
+
+INPUT_DIR = 'input/'
+OUTPUT_DIR = 'output/'
+
+# Ensure output directory exists
+Dir.mkdir(OUTPUT_DIR) unless Dir.exist?(OUTPUT_DIR)
+
+puts "Watching #{INPUT_DIR} for PostScript files..."
+puts "Press Ctrl+C to stop"
+
+listener = Listen.to(INPUT_DIR, only: /\.(ps|eps)$/i) do |modified, added, removed|
+  # Handle new or modified files
+  (modified + added).each do |file|
+    next unless File.exist?(file) # Skip if file was removed
+
+    output_file = File.join(
+      OUTPUT_DIR,
+      File.basename(file).sub(/\.(ps|eps)$/i, '.svg')
+    )
+
+    begin
+      puts "Converting #{File.basename(file)}..."
+      Postsvg.convert_file(file, output_file)
+      puts "✓ Created #{File.basename(output_file)}"
+    rescue => e
+      puts "✗ Failed #{File.basename(file)}: #{e.message}"
+    end
+  end
+end
+
+listener.start
+sleep
+----
+
+**Usage:**
+[source,sh]
+----
+gem install listen
+chmod +x ps-watcher.rb
+./ps-watcher.rb
+----
+
+== Workflow 6: Quality Assurance Pipeline
+
+Comprehensive quality checks before production deployment.
+
+[source,ruby]
+----
+#!/usr/bin/env ruby
+# qa-pipeline.rb
+
+require 'postsvg'
+require 'fileutils'
+
+class QAPipeline
+  def initialize(input_dir, output_dir)
+    @input_dir = input_dir
+    @output_dir = output_dir
+    @report = { passed: [], failed: [], warnings: [] }
+  end
+
+  def run
+    puts "Starting QA Pipeline..."
+    puts "=" * 50
+
+    files = Dir.glob(File.join(@input_dir, '*.{ps,eps}'))
+    puts "Found #{files.size} files"
+    puts
+
+    files.each do |file|
+      process_file(file)
+    end
+
+    print_report
+  end
+
+  private
+
+  def process_file(file)
+    basename = File.basename(file)
+    puts "Processing: #{basename}"
+
+    # Step 1: Syntax validation
+    unless validate_syntax(file)
+      @report[:failed] << "#{basename}: Syntax validation failed"
+      return
+    end
+
+    # Step 2: Semantic validation
+    unless validate_semantic(file)
+      @report[:failed] << "#{basename}: Semantic validation failed"
+      return
+    end
+
+    # Step 3: Conversion
+    output_file = File.join(@output_dir, basename.sub(/\.(ps|eps)$/i, '.svg'))
+    unless convert_file(file, output_file)
+      @report[:failed] << "#{basename}: Conversion failed"
+      return
+    end
+
+    # Step 4: Verify output
+    unless verify_output(output_file)
+      @report[:warnings] << "#{basename}: Output verification warnings"
+    end
+
+    @report[:passed] << basename
+    puts "✓ Passed all checks"
+    puts
+  end
+
+  def validate_syntax(file)
+    system("postsvg check --level=syntax --quiet #{file}")
+  end
+
+  def validate_semantic(file)
+    system("postsvg check --level=semantic --quiet #{file}")
+  end
+
+  def convert_file(input, output)
+    Postsvg.convert_file(input, output)
+    true
+  rescue => e
+    puts "  Error: #{e.message}"
+    false
+  end
+
+  def verify_output(file)
+    content = File.read(file)
+    content.include?('<svg') && content.include?('</svg>')
+  end
+
+  def print_report
+    puts "=" * 50
+    puts "QA Pipeline Report"
+    puts "=" * 50
+    puts "Passed:   #{@report[:passed].size}"
+    puts "Failed:   #{@report[:failed].size}"
+    puts "Warnings: #{@report[:warnings].size}"
+    puts
+
+    if @report[:failed].any?
+      puts "Failed files:"
+      @report[:failed].each { |f| puts "  ✗ #{f}" }
+      puts
+    end
+
+    if @report[:warnings].any?
+      puts "Warnings:"
+      @report[:warnings].each { |w| puts "  ⚠ #{w}" }
+      puts
+    end
+
+    exit(@report[:failed].empty? ? 0 : 1)
+  end
+end
+
+# Run pipeline
+QAPipeline.new('input/', 'output/').run
+----
+
+== Workflow 7: Performance Monitoring
+
+Monitor conversion performance for large batches.
+
+[source,ruby]
+----
+#!/usr/bin/env ruby
+# performance-monitor.rb
+
+require 'postsvg'
+require 'benchmark'
+
+files = Dir.glob('*.ps')
+results = []
+
+puts "Performance Monitoring Report"
+puts "=" * 60
+puts
+
+files.each do |file|
+  size = File.size(file)
+
+  time = Benchmark.measure do
+    Postsvg.convert_file(file, file.sub('.ps', '.svg'))
+  end
+
+  results << {
+    file: file,
+    size: size,
+    time: time.real,
+    rate: size / time.real / 1024 # KB/s
+  }
+
+  printf "%-30s %8d bytes %6.2f sec %8.1f KB/s\n",
+         File.basename(file), size, time.real, size / time.real / 1024
+end
+
+puts
+puts "=" * 60
+puts "Summary:"
+puts "  Total files: #{results.size}"
+puts "  Total size:  #{results.sum { |r| r[:size] } / 1024} KB"
+puts "  Total time:  #{'%.2f' % results.sum { |r| r[:time] }} sec"
+puts "  Average:     #{'%.1f' % (results.sum { |r| r[:rate] } / results.size)} KB/s"
+puts "  Fastest:     #{'%.1f' % results.max_by { |r| r[:rate] }[:rate]} KB/s"
+puts "  Slowest:     #{'%.1f' % results.min_by { |r| r[:rate] }[:rate]} KB/s"
+----
+
+== Next Steps
+
+After mastering these common workflows:
+
+* Learn link:../advanced-topics.adoc[Advanced Topics] for complex scenarios
+* Review link:../api-reference.adoc[API Reference] for detailed API usage
+* Check link:../cli-reference.adoc[CLI Reference] for all command options
+* See link:../development.adoc[Development Guide] to extend Postsvg
+* Visit link:../troubleshooting.adoc[Troubleshooting] if you encounter issues
+
+== Bibliography
+
+* link:basic-usage.adoc[Basic Usage Guide]
+* link:first-conversion.adoc[First Conversion Tutorial]
+* link:../api-reference.adoc[API Reference]
+* link:../cli-reference.adoc[CLI Reference]
+* link:../advanced-topics.adoc[Advanced Topics]

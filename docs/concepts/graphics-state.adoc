@@ -1,0 +1,861 @@
+= Graphics State Management
+:page-nav_order: 2
+:page-parent: Core Concepts
+
+== Purpose
+
+This document provides a comprehensive explanation of graphics state management in Postsvg. The graphics state is central to PostScript's imaging model, tracking all parameters that affect how graphics are rendered. Understanding graphics state management is essential for working with complex PostScript documents and troubleshooting rendering issues.
+
+== References
+
+* link:../index.adoc[Documentation Home]
+* link:../concepts.adoc[Core Concepts Overview]
+* link:conversion-pipeline.adoc[Conversion Pipeline]
+* link:coordinate-systems.adoc[Coordinate Systems]
+* link:../architecture/graphics-state-model.adoc[Graphics State Implementation]
+
+== Concepts
+
+**Graphics State**:: A data structure containing all parameters that control how graphics are rendered, including colors, line attributes, paths, and transformations.
+
+**State Stack**:: A stack of saved graphics states enabling nested modifications with automatic restoration via `gsave`/`grestore`.
+
+**Current Transformation Matrix (CTM)**:: A 2D affine transformation matrix that maps user space coordinates to device space.
+
+**Current Path**:: The path being constructed by path operators, maintained as part of graphics state.
+
+**Immutable State Pattern**:: Graphics states are cloned when saved, preventing unintended modifications to saved states.
+
+== Graphics State Components
+
+The graphics state consists of multiple interconnected components that control every aspect of rendering.
+
+.Graphics State Structure
+[source]
+----
+Graphics State
+│
+├── Path State
+│   ├── Current Path: Array of path segments
+│   └── Current Point: (x, y) coordinates
+│
+├── Color State
+│   ├── Fill Color: RGB/Grayscale/CMYK
+│   ├── Stroke Color: RGB/Grayscale/CMYK
+│   └── Color Space: DeviceRGB/DeviceGray/DeviceCMYK
+│
+├── Line Attributes
+│   ├── Line Width: Stroke thickness
+│   ├── Line Cap: butt/round/square
+│   ├── Line Join: miter/round/bevel
+│   ├── Miter Limit: Maximum miter length
+│   └── Dash Pattern: [array offset]
+│
+├── Transformation Matrix
+│   └── CTM: [a b c d e f]
+│
+├── Clipping Path
+│   └── Clip Stack: Array of clipping regions
+│
+├── Text State
+│   ├── Font: Current font dictionary
+│   ├── Font Size: Text size in user space
+│   └── Text Position: Last text rendering position
+│
+└── Advanced Features (Level 3)
+    ├── Blend Mode: Compositing mode
+    ├── Soft Mask: Transparency mask
+    ├── Opacity Alpha: Overall opacity
+    └── Shape Alpha: Shape opacity
+----
+
+== Path State
+
+=== Current Path
+
+The current path is a sequence of path segments being constructed. It remains part of the graphics state until explicitly painted or cleared.
+
+**Path Segments:**
+
+* **moveto** - Starts a new subpath at coordinates (x, y)
+* **lineto** - Adds a straight line to (x, y)
+* **curveto** - Adds a cubic Bézier curve
+* **closepath** - Closes the current subpath
+
+.Path State Example
+[example]
+====
+[source,postscript]
+----
+newpath           % Clear current path
+100 100 moveto    % Start subpath at (100, 100)
+200 100 lineto    % Add line to (200, 100)
+200 200 lineto    % Add line to (200, 200)
+closepath         % Close back to (100, 100)
+% Path is now complete but not yet painted
+----
+
+Current path state after these operations:
+
+[source,ruby]
+----
+{
+  current_path: [
+    { type: :moveto, x: 100, y: 100 },
+    { type: :lineto, x: 200, y: 100 },
+    { type: :lineto, x: 200, y: 200 },
+    { type: :closepath }
+  ],
+  current_x: 100,  # Back to start after closepath
+  current_y: 100
+}
+----
+====
+
+=== Current Point
+
+The current point is the last position touched by a path construction operator. It's used as the starting point for the next path segment.
+
+**Rules:**
+
+* Set by `moveto`, `lineto`, `curveto`, and relative variants
+* Reset by `closepath` to the subpath's starting point
+* Undefined after `newpath` (must use `moveto` before other operators)
+
+.Current Point Tracking
+[example]
+====
+[source,postscript]
+----
+newpath
+% Current point: undefined
+
+50 50 moveto
+% Current point: (50, 50)
+
+100 0 rlineto    % Relative line
+% Current point: (150, 50) = (50 + 100, 50 + 0)
+
+0 50 rlineto
+% Current point: (150, 100) = (150 + 0, 50 + 50)
+----
+====
+
+== Color State
+
+=== Color Spaces
+
+Postsvg supports multiple color spaces:
+
+**DeviceRGB**:: Three components (red, green, blue) each in range [0, 1]
+
+**DeviceGray**:: Single component (gray) in range [0, 1]
+
+**DeviceCMYK**:: Four components (cyan, magenta, yellow, black) each in range [0, 1]
+
+=== Fill vs. Stroke Colors
+
+Graphics state maintains separate colors for filling and stroking:
+
+* **Fill Color** - Used by `fill`, `eofill`
+* **Stroke Color** - Used by `stroke`
+
+.Setting Colors
+[example]
+====
+[source,postscript]
+----
+% Grayscale (applies to both fill and stroke)
+0.5 setgray
+% fill_color: { r: 0.5, g: 0.5, b: 0.5 }
+% stroke_color: { r: 0.5, g: 0.5, b: 0.5 }
+
+% RGB (applies to both fill and stroke)
+1 0 0 setrgbcolor    % Red
+% fill_color: { r: 1, g: 0, b: 0 }
+% stroke_color: { r: 1, g: 0, b: 0 }
+
+% CMYK (applies to both fill and stroke)
+0 1 1 0 setcmykcolor  % Red in CMYK
+----
+====
+
+=== Color Representation
+
+In the [`GraphicsState`](../../lib/postsvg/graphics_state.rb:5) class:
+
+[source,ruby]
+----
+# RGB color
+{ r: 1.0, g: 0.0, b: 0.0 }    # Red
+
+# Grayscale (stored as RGB)
+{ r: 0.5, g: 0.5, b: 0.5 }    # 50% gray
+
+# Conversion to SVG hex
+rgb_to_hex(1.0, 0.0, 0.0)  # "#ff0000"
+----
+
+== Line Attributes
+
+Line attributes control how paths are stroked.
+
+=== Line Width
+
+The thickness of stroked lines, specified in user space units.
+
+[source,postscript]
+----
+1 setlinewidth     % Default (1 unit wide)
+2.5 setlinewidth   % 2.5 units wide
+0 setlinewidth     % Thinnest possible (1 device pixel)
+----
+
+**Implementation:**
+
+[source,ruby]
+----
+# In GraphicsState
+@line_width = 1.0  # Default
+
+# Set by setlinewidth operator
+context.graphics_state[:stroke_width] = width
+----
+
+=== Line Cap
+
+Determines how the ends of stroked lines are rendered.
+
+**Values:**
+
+* `0` - Butt cap (square end at endpoint)
+* `1` - Round cap (semicircular end)
+* `2` - Projecting square cap (extends beyond endpoint)
+
+.Line Cap Styles
+[source]
+----
+Butt Cap (0):        Round Cap (1):      Square Cap (2):
+─────────            ─────────╮          ──────────┐
+                              ╰                    │
+                                                   └
+----
+
+[source,postscript]
+----
+0 setlinecap    % Butt
+1 setlinecap    % Round
+2 setlinecap    % Square
+----
+
+=== Line Join
+
+Determines how corners are rendered when two line segments meet.
+
+**Values:**
+
+* `0` - Miter join (pointed corner, default)
+* `1` - Round join (circular arc)
+* `2` - Bevel join (flat corner)
+
+.Line Join Styles
+[source]
+----
+Miter Join (0):    Round Join (1):    Bevel Join (2):
+    ╱╲                 ╱╲                 ╱╲
+   ╱  ╲               ╱  ╲               ╱  ╲
+  ╱    ╲             ╱    ╲             ╱    ╲
+----
+
+[source,postscript]
+----
+0 setlinejoin   % Miter
+1 setlinejoin   % Round
+2 setlinejoin   % Bevel
+----
+
+=== Dash Pattern
+
+Controls dashed/dotted line rendering.
+
+**Syntax:**
+
+[source,postscript]
+----
+[array] offset setdash
+----
+
+**Where:**
+
+`array`:: Array of on/off lengths (in user space units)
+`offset`:: Distance into pattern to start
+
+.Dash Patterns
+[example]
+====
+[source,postscript]
+----
+% Solid line (default)
+[] 0 setdash
+
+% Evenly dashed (3 units on, 3 units off)
+[3 3] 0 setdash
+
+% Dash-dot pattern (5 on, 2 off, 1 on, 2 off)
+[5 2 1 2] 0 setdash
+
+% Offset pattern by 2 units
+[3 3] 2 setdash
+----
+
+Visual representation:
+
+[source]
+----
+[] 0:        ────────────────────────────
+
+[3 3] 0:     ───   ───   ───   ───   ───
+
+[5 2 1 2] 0: ─────  ─  ─────  ─  ─────
+
+[3 3] 2:      ─   ───   ───   ───   ───
+----
+====
+
+=== Miter Limit
+
+Controls when miter joins are beveled instead of extended to a point.
+
+[source,postscript]
+----
+10 setmiterlimit   % Default
+4 setmiterlimit    % More aggressive beveling
+----
+
+When the miter length would exceed `miter_limit × line_width`, the join is beveled instead.
+
+== Current Transformation Matrix (CTM)
+
+The CTM transforms coordinates from user space to device space. It's a 2D affine transformation matrix represented as `[a b c d e f]`.
+
+=== Matrix Representation
+
+[source]
+----
+[ a  b  0 ]     [ x ]     [ ax + cy + e ]
+[ c  d  0 ]  ×  [ y ]  =  [ bx + dy + f ]
+[ e  f  1 ]     [ 1 ]     [      1      ]
+----
+
+**Components:**
+
+* `a, d` - Scaling factors
+* `b, c` - Rotation/skew factors
+* `e, f` - Translation offsets
+
+=== Identity Matrix
+
+The default CTM is the identity matrix:
+
+[source,ruby]
+----
+[1, 0, 0, 1, 0, 0]  # No transformation
+----
+
+This means:
+* No scaling (1:1)
+* No rotation
+* No translation
+
+=== Common Transformations
+
+**Translation:**
+
+[source,postscript]
+----
+10 20 translate
+% CTM = [1 0 0 1 10 20]
+% Shifts origin to (10, 20)
+----
+
+**Scaling:**
+
+[source,postscript]
+----
+2 3 scale
+% CTM = [2 0 0 3 0 0]
+% Doubles X, triples Y
+----
+
+**Rotation:**
+
+[source,postscript]
+----
+45 rotate
+% CTM = [cos(45°) sin(45°) -sin(45°) cos(45°) 0 0]
+% CTM ≈ [0.707 0.707 -0.707 0.707 0 0]
+% Rotates 45° counter-clockwise
+----
+
+=== Transformation Composition
+
+Transformations are applied by matrix multiplication. The order matters!
+
+.Transformation Order
+[example]
+====
+[source,postscript]
+----
+% Translate THEN rotate
+10 20 translate
+45 rotate
+% Points are first translated, then rotated around new origin
+
+% Rotate THEN translate
+45 rotate
+10 20 translate
+% Points are first rotated around origin, then translated
+----
+
+These produce different results:
+
+[source]
+----
+Translate → Rotate:         Rotate → Translate:
+
+    Original (0,0)              Original (0,0)
+         │                           │
+         ▼ translate(10,20)          ▼ rotate(45°)
+    New origin (10,20)               Rotated
+         │                           │
+         ▼ rotate(45°)               ▼ translate(10,20)
+    Rotated around (10,20)      Moved to (10,20)
+----
+====
+
+=== CTM Implementation
+
+In Postsvg, the CTM is managed by the [`Matrix`](../../lib/postsvg/matrix.rb:6) class:
+
+[source,ruby]
+----
+# Create identity matrix
+ctm = Matrix.new
+# => { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+
+# Apply translation
+ctm.translate(10, 20)
+
+# Apply scaling
+ctm.scale(2, 2)
+
+# Apply rotation
+ctm.rotate(45)  # degrees
+
+# Transform a point
+point = ctm.apply_point(100, 100)
+# => { x: transformed_x, y: transformed_y }
+----
+
+== Graphics State Stack
+
+The graphics state stack enables nested state modifications with automatic restoration.
+
+=== Save and Restore Operations
+
+**gsave**:: Pushes a copy of the current graphics state onto the stack
+
+**grestore**:: Pops the stack and restores the previous state
+
+.Graphics State Stack Visualization
+[source]
+----
+Initial State: linewidth=1, color=black, CTM=identity
+│
+├─ gsave ──────────────────────────────────┐
+│  Modified State: linewidth=2, color=red  │
+│  │                                       │
+│  ├─ gsave ─────────────────────────┐    │
+│  │  Modified: linewidth=5, color=blue   │
+│  │  (draw with blue, width 5)      │    │
+│  │                                  │    │
+│  └─ grestore ◄──────────────────────┘    │
+│     Back to: linewidth=2, color=red      │
+│     (draw with red, width 2)             │
+│                                          │
+└─ grestore ◄──────────────────────────────┘
+   Back to: linewidth=1, color=black
+   (draw with original settings)
+----
+
+=== Stack Implementation
+
+The stack is implemented in [`ExecutionContext`](../../lib/postsvg/execution_context.rb:9):
+
+[source,ruby]
+----
+# Save graphics state
+def save_graphics_state
+  @g_stack << {
+    graphics_state: clone_graphics_state(@graphics_state),
+    current_x: @current_x,
+    current_y: @current_y,
+    saved_ctm: clone_matrix(@graphics_state[:ctm]),
+    path_builder: @path_builder.dup
+  }
+end
+
+# Restore graphics state
+def restore_graphics_state
+  return if @g_stack.empty?
+
+  saved = @g_stack.pop
+  @graphics_state = saved[:graphics_state]
+  @current_x = saved[:current_x]
+  @current_y = saved[:current_y]
+  @path_builder = saved[:path_builder]
+end
+----
+
+=== Saved State Components
+
+When `gsave` is executed, these components are saved:
+
+* Current transformation matrix (CTM)
+* Current path and current point
+* Clipping path
+* Fill and stroke colors
+* Line attributes (width, cap, join, dash, miter limit)
+* Font and text settings
+* Advanced features (blend mode, opacity, etc.)
+
+=== Common Usage Patterns
+
+**Temporary Modifications:**
+
+[source,postscript]
+----
+gsave
+  2 setlinewidth
+  1 0 0 setrgbcolor
+  % Draw with thick red lines
+grestore
+% Original settings restored
+----
+
+**Isolated Transformations:**
+
+[source,postscript]
+----
+gsave
+  100 100 translate
+  45 rotate
+  % Draw rotated around (100, 100)
+grestore
+% No rotation for subsequent drawing
+----
+
+**Nested Modifications:**
+
+[source,postscript]
+----
+gsave                    % Save state A
+  1 0 0 setrgbcolor     % Red
+  gsave                  % Save state B (red)
+    0 1 0 setrgbcolor   % Green
+    % Draw in green
+  grestore               % Restore to red
+  % Draw in red
+grestore                 % Restore to original
+----
+
+== State Modification Examples
+
+=== Complete State Lifecycle
+
+.Full State Management Example
+[example]
+====
+[source,postscript]
+----
+% Initial state
+newpath
+100 100 moveto
+200 100 lineto
+% State: path=[(M 100,100)(L 200,100)], linewidth=1, color=black
+
+gsave
+  % Save initial state
+  2 setlinewidth
+  0.5 setgray
+  200 200 lineto
+  stroke
+  % Painted with linewidth=2, gray=0.5
+grestore
+
+% State restored: linewidth=1, color=black, path cleared by stroke
+
+% New path
+newpath
+50 50 moveto
+150 150 lineto
+stroke
+% Painted with original linewidth=1, color=black
+----
+
+State transitions:
+
+[source]
+----
+Step 1: Initial
+  path: [(M 100,100)(L 200,100)]
+  linewidth: 1
+  color: black
+
+Step 2: gsave
+  Stack: [initial_state]
+  Current: same as initial
+
+Step 3: Modify
+  linewidth: 2
+  gray: 0.5
+  path: [(M 100,100)(L 200,100)(L 200,200)]
+
+Step 4: stroke
+  → Paints path with current settings
+  → Clears current path
+  path: []
+
+Step 5: grestore
+  → Pops stack
+  linewidth: 1
+  color: black
+  path: [] (not restored after stroke)
+
+Step 6: New path
+  path: [(M 50,50)(L 150,150)]
+
+Step 7: stroke
+  → Paints with original settings
+----
+====
+
+=== Transformation State
+
+.Transformation with State Stack
+[example]
+====
+[source,postscript]
+----
+% Draw square at origin
+newpath
+0 0 moveto
+100 0 lineto
+100 100 lineto
+0 100 lineto
+closepath
+stroke
+
+% Draw rotated square
+gsave
+  45 rotate
+  newpath
+  0 0 moveto
+  100 0 lineto
+  100 100 lineto
+  0 100 lineto
+  closepath
+  stroke
+grestore
+
+% Draw translated square (no rotation)
+150 0 translate
+newpath
+0 0 moveto
+100 0 lineto
+100 100 lineto
+0 100 lineto
+closepath
+stroke
+----
+
+CTM progression:
+
+[source]
+----
+Initial:          [1 0 0 1 0 0]        (identity)
+After gsave:      [1 0 0 1 0 0]        (same)
+After rotate:     [0.707 0.707 -0.707 0.707 0 0]
+After grestore:   [1 0 0 1 0 0]        (restored)
+After translate:  [1 0 0 1 150 0]      (new transform)
+----
+====
+
+== Advanced State Features
+
+=== Clipping Path Stack
+
+The clipping path restricts where graphics can be painted. It's maintained as a stack to support nested clipping.
+
+[source,postscript]
+----
+gsave
+  % Define clipping path
+  newpath
+  50 50 100 100 rectpath
+  clip
+  newpath
+  % Only paint inside rectangle
+  0 0 moveto
+  200 200 lineto
+  stroke   % Only visible inside clip region
+grestore
+% Clipping path removed
+----
+
+=== Blend Modes and Transparency
+
+PostScript Level 3 adds transparency features:
+
+**Blend Mode:**
+
+[source,postscript]
+----
+/Normal setblendmode      % Default
+/Multiply setblendmode    % Multiply colors
+/Screen setblendmode      % Screen blend
+----
+
+**Opacity:**
+
+[source,postscript]
+----
+0.5 setopacityalpha    % 50% opaque
+0.8 setshapealpha      % 80% shape opacity
+----
+
+== Performance Considerations
+
+=== State Cloning
+
+When `gsave` is called, the entire graphics state is cloned:
+
+[source,ruby]
+----
+def clone_graphics_state(state)
+  {
+    ctm: clone_matrix(state[:ctm]),
+    fill: state[:fill],
+    stroke: state[:stroke],
+    stroke_width: state[:stroke_width],
+    # ... all other components
+  }
+end
+----
+
+**Performance Impact:**
+
+* Time: O(n) where n = number of state components
+* Space: O(n × d) where d = stack depth
+* Tip: Minimize deep nesting of `gsave`/`grestore`
+
+=== State Stack Depth
+
+Graphics state stack depth is typically limited (usually 31 levels in PostScript interpreters).
+
+.Monitoring Stack Depth
+[example]
+====
+[source,ruby]
+----
+# Check stack depth
+puts "Graphics state stack depth: #{context.instance_variable_get(:@g_stack).length}"
+
+# Avoid excessive nesting
+# Bad:
+100.times { gsave }  # Don't do this!
+
+# Good:
+# Use gsave/grestore only when needed for isolation
+----
+====
+
+== Troubleshooting Graphics State Issues
+
+=== Common Problems
+
+**Unmatched gsave/grestore:**
+
+[source,postscript]
+----
+gsave
+  % Some operations
+% Missing grestore!
+% Stack accumulates saved states
+----
+
+**Solution:** Always match `gsave` with `grestore`
+
+**State Not Restoring:**
+
+[source,postscript]
+----
+gsave
+  2 setlinewidth
+  stroke        % Clears path!
+grestore
+% Path is NOT restored (stroke cleared it)
+----
+
+**Solution:** Understand that `stroke` and `fill` clear the current path regardless of state stack
+
+**Transformation Confusion:**
+
+[source,postscript]
+----
+10 20 translate
+45 rotate
+% Rotation happens around (10, 20), not (0, 0)
+----
+
+**Solution:** Remember transformations compose; order matters
+
+=== Debugging State
+
+.Inspecting Graphics State
+[example]
+====
+[source,ruby]
+----
+# In execution context
+state = context.graphics_state
+
+puts "Current state:"
+puts "  CTM: #{state[:ctm].inspect}"
+puts "  Fill: #{state[:fill]}"
+puts "  Stroke: #{state[:stroke]}"
+puts "  Stroke width: #{state[:stroke_width]}"
+puts "  Line cap: #{state[:line_cap]}"
+puts "  Line join: #{state[:line_join]}"
+puts "  Clip stack depth: #{state[:clip_stack].length}"
+
+# Check state stack
+puts "Saved states: #{context.instance_variable_get(:@g_stack).length}"
+----
+====
+
+== Next Steps
+
+* Learn about link:coordinate-systems.adoc[Coordinate Systems] for CTM details
+* Explore link:path-operations.adoc[Path Operations] for path state
+* Review link:conversion-pipeline.adoc[Conversion Pipeline] for state flow
+* See link:../architecture/graphics-state-model.adoc[Graphics State Implementation]
+* Check link:../api-reference/graphics-state.adoc[GraphicsState API Reference]
+
+== Bibliography
+
+* link:../architecture/graphics-state-model.adoc[Graphics State Model Architecture]
+* link:coordinate-systems.adoc[Coordinate Systems and Transformations]
+* link:path-operations.adoc[Path Operations]
+* link:../api-reference/execution-context.adoc[ExecutionContext API Reference]
+* link:https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf[PostScript Language Reference Manual] - Chapter 4: Graphics

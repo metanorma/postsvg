@@ -1,0 +1,746 @@
+= Conversion Pipeline
+:page-nav_order: 1
+
+== Purpose
+
+This document describes Postsvg's three-stage conversion pipeline architecture that transforms PostScript/EPS files into SVG format. Understanding the pipeline helps developers comprehend how data flows through the system, where each transformation occurs, and how components interact.
+
+== References
+
+* link:../architecture.adoc[Architecture Overview]
+* link:parser-stage.adoc[Parser Stage Details]
+* link:interpreter-stage.adoc[Interpreter Stage Details]
+* link:generator-stage.adoc[Generator Stage Details]
+* link:../api-reference/converter.adoc[Converter API Reference]
+* link:../api-reference/tokenizer.adoc[Tokenizer API Reference]
+* link:../api-reference/interpreter.adoc[Interpreter API Reference]
+
+== Concepts
+
+**Three-Stage Architecture**:: Postsvg separates conversion into three distinct stages: parsing, interpretation, and generation.
+
+**Pipeline Orchestration**:: The [`Converter`](../../lib/postsvg/converter.rb:8) class coordinates the entire pipeline.
+
+**Immutable Stages**:: Each stage produces output consumed by the next, with no circular dependencies.
+
+**BoundingBox Extraction**:: Viewport dimensions are extracted before processing begins.
+
+**Strict vs Lenient Mode**:: The pipeline can operate in strict mode (fail on errors) or lenient mode (continue with warnings).
+
+== Pipeline Overview
+
+.Complete Conversion Pipeline
+[source]
+----
+┌─────────────────────────────────────────────────────────┐
+│                  Input: PostScript/EPS                  │
+│                    (String or File)                     │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│               Stage 0: Preprocessing                    │
+│                                                          │
+│  • Extract BoundingBox from comments                    │
+│  • Determine viewport dimensions                        │
+│  • Configure strict/lenient mode                        │
+│                                                          │
+│  Class: Converter                                       │
+│  Output: BoundingBox hash                               │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│              Stage 1: Tokenization/Parsing              │
+│                                                          │
+│  • Lexical analysis of PostScript source                │
+│  • Break input into tokens                              │
+│  • Classify token types                                 │
+│  • Handle strings, numbers, operators                   │
+│                                                          │
+│  Class: Tokenizer                                       │
+│  Output: Token array                                    │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│           Stage 2: Interpretation/Execution             │
+│                                                          │
+│  • Process tokens sequentially                          │
+│  • Execute PostScript commands                          │
+│  • Manage execution context                             │
+│  • Build SVG representation                             │
+│  • Track graphics state                                 │
+│                                                          │
+│  Class: Interpreter                                     │
+│  Components: ExecutionContext, GraphicsState            │
+│  Output: SVG elements, paths, text                      │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│            Stage 3: SVG Document Generation             │
+│                                                          │
+│  • Create SVG document structure                        │
+│  • Apply viewport transformation                        │
+│  • Optimize clipPath references                         │
+│  • Format output XML                                    │
+│                                                          │
+│  Class: Interpreter (generate_svg_document)             │
+│  Output: Complete SVG document string                   │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│                 Output: SVG Document                    │
+│                  (String or File)                       │
+└─────────────────────────────────────────────────────────┘
+----
+
+== Stage 0: Preprocessing
+
+The preprocessing stage prepares the input for conversion by extracting metadata and configuring the conversion environment.
+
+=== BoundingBox Extraction
+
+**Purpose:** Determine the viewport dimensions from PostScript comments.
+
+**Implementation:**
+
+[source,ruby]
+----
+# lib/postsvg/converter.rb:33
+def extract_bounding_box
+  # Look for %%BoundingBox comment
+  if ps_content =~ /%%BoundingBox:\s*(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)/
+    llx = ::Regexp.last_match(1).to_i
+    lly = ::Regexp.last_match(2).to_i
+    urx = ::Regexp.last_match(3).to_i
+    ury = ::Regexp.last_match(4).to_i
+
+    {
+      llx: llx,
+      lly: lly,
+      urx: urx,
+      ury: ury,
+      width: urx - llx,
+      height: ury - lly,
+    }
+  else
+    # Default to Full HD if no BoundingBox found
+    { llx: 0, lly: 0, urx: 1920, ury: 1080, width: 1920, height: 1080 }
+  end
+end
+----
+
+**BoundingBox Format:**
+
+The BoundingBox comment specifies viewport dimensions:
+
+[source]
+----
+%%BoundingBox: llx lly urx ury
+
+Where:
+  llx, lly = Lower-left corner coordinates
+  urx, ury = Upper-right corner coordinates
+----
+
+**Example:**
+
+[source]
+----
+%%BoundingBox: 0 0 612 792    # US Letter size
+%%BoundingBox: 50 50 300 200  # Custom viewport
+----
+
+=== Mode Configuration
+
+**Strict Mode:** Fails immediately on any error or unsupported operator.
+
+[source,ruby]
+----
+converter = Converter.new(ps_content, strict_mode: true)
+----
+
+**Lenient Mode:** Continues processing, adding HTML comments for errors.
+
+[source,ruby]
+----
+converter = Converter.new(ps_content, strict_mode: false)  # Default
+----
+
+== Stage 1: Tokenization/Parsing
+
+The tokenization stage transforms raw PostScript text into structured tokens.
+
+=== Tokenizer Architecture
+
+**Location:** [`lib/postsvg/tokenizer.rb`](../../lib/postsvg/tokenizer.rb:8)
+
+**Responsibilities:**
+
+* Lexical analysis of PostScript source
+* Character-by-character scanning
+* Token classification
+* String and number parsing
+
+=== Token Types
+
+[source,ruby]
+----
+Token = Struct.new(:type, :value)
+
+# Token types:
+:number       # Integer or float: 42, 3.14, 1.0e-5
+:operator     # Command name: moveto, stroke, add
+:name         # Literal name: /Arial, /Pattern
+:string       # String literal: (Hello World)
+:hex_string   # Hex string: <48656C6C6F>
+:brace        # Procedure delimiter: { }
+:bracket      # Array delimiter: [ ]
+:dict         # Dictionary delimiter: << >>
+----
+
+=== Tokenization Process
+
+.Tokenization Data Flow
+[source]
+----
+PostScript Source
+      │
+      ▼
+┌─────────────────┐
+│ Character Scan  │ → Read one character at a time
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Token Builder   │ → Accumulate characters into tokens
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Classification  │ → Determine token type
+└────────┬────────┘
+         │
+         ▼
+   Token Array
+----
+
+=== Number Parsing
+
+**Integer Detection:**
+
+[source,ruby]
+----
+# Numbers without decimal point or exponent are integers
+"42"      → Token(:number, "42")     → 42 (Integer)
+"-17"     → Token(:number, "-17")    → -17 (Integer)
+----
+
+**Float Detection:**
+
+[source,ruby]
+----
+# Numbers with decimal point or scientific notation are floats
+"3.14"    → Token(:number, "3.14")   → 3.14 (Float)
+"1.0e-5"  → Token(:number, "1.0e-5") → 0.00001 (Float)
+----
+
+=== String Parsing
+
+**Regular Strings:**
+
+[source,ruby]
+----
+# Parenthesized strings
+(Hello World) → Token(:string, "Hello World")
+(Nested (parentheses)) → Token(:string, "Nested (parentheses)")
+----
+
+**Hex Strings:**
+
+[source,ruby]
+----
+# Angle-bracket enclosed hex data
+<48656C6C6F> → Token(:hex_string, "48656C6C6F")
+----
+
+=== Example Tokenization
+
+.Input PostScript
+[source,postscript]
+----
+%%BoundingBox: 0 0 100 100
+/Helvetica findfont 12 scalefont setfont
+100 50 moveto
+(Hello) show
+----
+
+.Output Tokens
+[source,ruby]
+----
+[
+  Token(:name, "/Helvetica"),
+  Token(:operator, "findfont"),
+  Token(:number, "12"),
+  Token(:operator, "scalefont"),
+  Token(:operator, "setfont"),
+  Token(:number, "100"),
+  Token(:number, "50"),
+  Token(:operator, "moveto"),
+  Token(:string, "Hello"),
+  Token(:operator, "show")
+]
+----
+
+== Stage 2: Interpretation/Execution
+
+The interpretation stage executes PostScript commands and builds the SVG representation.
+
+=== Interpreter Architecture
+
+**Location:** [`lib/postsvg/interpreter.rb`](../../lib/postsvg/interpreter.rb:9)
+
+**Key Components:**
+
+* **ExecutionContext:** Manages stack, dictionaries, graphics state
+* **Command Registry:** Maps operators to command implementations
+* **Graphics State:** Tracks path, colors, transformations
+* **SVG Output Buffer:** Accumulates SVG elements
+
+=== Execution Loop
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:20
+def interpret(tokens, bounding_box = nil)
+  @bbox = bounding_box
+  i = 0
+
+  while i < tokens.length
+    token = tokens[i]
+
+    case token.type
+    when "number"
+      # Push numbers onto operand stack
+      num = parse_number(token.value)
+      @context.push(num)
+
+    when "string", "name"
+      # Push literals onto stack
+      @context.push(token.value)
+
+    when "brace"
+      # Parse procedures: { ... }
+      if token.value == "{"
+        proc_result = parse_procedure(tokens, i + 1)
+        @context.push({ type: "procedure", body: proc_result[:procedure] })
+        i = proc_result[:next_index] - 1
+      end
+
+    when "bracket"
+      # Parse arrays: [ ... ]
+      if token.value == "["
+        array_result = parse_array(tokens, i + 1)
+        @context.push(array_result[:array])
+        i = array_result[:next_index] - 1
+      end
+
+    when "operator"
+      # Execute PostScript operator
+      execute_operator(token.value, tokens, i)
+    end
+
+    i += 1
+  end
+
+  # Generate final SVG document
+  svg_doc = generate_svg_document(@context.svg_output, @bbox)
+  { svg: svg_doc, elements: @context.svg_output[:paths] + @context.svg_output[:text] }
+end
+----
+
+=== Command Execution
+
+**Operator Lookup:**
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:177
+def execute_operator(op, tokens, current_index)
+  # First check dictionary stack
+  dict_val = @context.lookup(op)
+  if dict_val
+    # Execute user-defined procedure
+    execute_procedure(tokens, dict_val[:body], current_index)
+    return
+  end
+
+  # Look up in command registry
+  command = @registry.get(op)
+  if command
+    # Execute built-in command
+    command.call(@context)
+  elsif @strict_mode
+    raise UnsupportedOperatorError, "Unknown operator: #{op}"
+  else
+    # Add comment in lenient mode
+    @context.svg_output[:paths] << "<!-- Unhandled operator: #{op} -->"
+  end
+end
+----
+
+=== Data Structure Parsing
+
+**Procedures:**
+
+[source,ruby]
+----
+# Parse { body } into procedure token list
+def parse_procedure(tokens, start_index)
+  procedure = []
+  depth = 1
+  index = start_index
+
+  while index < tokens.length && depth > 0
+    token = tokens[index]
+    if token.type == "brace" && token.value == "{"
+      depth += 1
+    elsif token.type == "brace" && token.value == "}"
+      depth -= 1
+      return { procedure: procedure, next_index: index + 1 } if depth == 0
+    end
+    procedure << token if depth > 0
+    index += 1
+  end
+
+  { procedure: procedure, next_index: index }
+end
+----
+
+**Arrays:**
+
+[source,ruby]
+----
+# Parse [ elements ] into Ruby array
+def parse_array(tokens, start_index)
+  array = []
+  index = start_index
+
+  while index < tokens.length
+    token = tokens[index]
+    return { array: array, next_index: index + 1 } if token.value == "]"
+
+    # Parse and add element
+    if token.type == "number"
+      array << parse_number(token.value)
+    elsif token.type == "string" || token.type == "name"
+      array << token.value
+    end
+    index += 1
+  end
+
+  { array: array, next_index: index }
+end
+----
+
+== Stage 3: SVG Document Generation
+
+The final stage assembles SVG elements into a complete, valid SVG document.
+
+=== Document Structure
+
+[source,ruby]
+----
+# lib/postsvg/interpreter.rb:219
+def generate_svg_document(svg_out, bbox)
+  width = num_fmt(bbox[:width])
+  height = num_fmt(bbox[:height])
+  llx = num_fmt(bbox[:llx])
+  lly = num_fmt(bbox[:lly])
+
+  view_box = "#{llx} #{lly} #{width} #{height}"
+
+  # Build <defs> section if needed
+  defs = svg_out[:defs].empty? ? "" :
+    "\n<defs>\n#{svg_out[:defs].join("\n")}\n</defs>\n"
+
+  # Combine paths and text
+  elements = (svg_out[:paths] + svg_out[:text]).join("\n")
+
+  # Apply global Y-axis flip transformation
+  transform = "translate(0 #{height}) scale(1 -1)"
+  body = "\n<g transform=\"#{transform}\">\n#{elements}\n</g>"
+
+  # Assemble complete document
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" \
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" " \
+    "viewBox=\"#{view_box}\" width=\"#{width}\" height=\"#{height}\">" \
+    "#{defs}#{body}\n</svg>"
+end
+----
+
+=== Y-Axis Transformation
+
+PostScript uses bottom-left origin; SVG uses top-left. The pipeline applies a global transformation:
+
+[source,svg]
+----
+<g transform="translate(0 HEIGHT) scale(1 -1)">
+  <!-- All elements here -->
+</g>
+----
+
+**Effect:**
+
+* Translates origin to bottom-left
+* Flips Y-axis to match PostScript coordinates
+* All paths and text are automatically corrected
+
+=== ClipPath Optimization
+
+The generator deduplicates clipPath definitions:
+
+[source,ruby]
+----
+# lib/postsvg/execution_context.rb:278
+@clippath_cache = {}  # Maps path data → clipPath ID
+
+# When creating clipPath:
+clip_id = @clippath_cache[clip_path_d]
+unless clip_id
+  # Create new clipPath and cache it
+  clip_id = next_clippath_id
+  @clippath_cache[clip_path_d] = clip_id
+  @svg_output[:defs] <<
+    "<clipPath id=\"clipPath#{clip_id}\">" \
+    "<path d=\"#{clip_path_d}\" /></clipPath>"
+end
+----
+
+== Pipeline Coordination
+
+=== Converter Class
+
+The [`Converter`](../../lib/postsvg/converter.rb:8) class orchestrates the entire pipeline:
+
+[source,ruby]
+----
+# lib/postsvg/converter.rb:17
+def convert
+  # Stage 0: Extract metadata
+  bounding_box = extract_bounding_box
+
+  # Stage 1: Tokenize
+  tokens = Tokenizer.tokenize(ps_content)
+
+  # Stage 2: Interpret
+  interpreter = Interpreter.new(strict_mode: @strict_mode)
+  result = interpreter.interpret(tokens, bounding_box)
+
+  # Stage 3: Return SVG (generated by interpreter)
+  result[:svg]
+end
+----
+
+=== Error Handling
+
+**Strict Mode:**
+
+[source,ruby]
+----
+# Raises exceptions immediately
+begin
+  command.call(@context)
+rescue StandardError => e
+  raise ConversionError, "Error executing '#{op}': #{e.message}"
+end
+----
+
+**Lenient Mode:**
+
+[source,ruby]
+----
+# Adds HTML comments, continues processing
+begin
+  command.call(@context)
+rescue StandardError => e
+  @context.svg_output[:paths] <<
+    "<!-- Error executing #{op}: #{e.message} -->"
+end
+----
+
+== Data Flow Example
+
+=== Input PostScript
+
+[source,postscript]
+----
+%%BoundingBox: 0 0 200 100
+newpath
+50 50 moveto
+150 50 lineto
+150 75 lineto
+50 75 lineto
+closepath
+0.5 setgray
+fill
+----
+
+=== Stage 1: Tokens
+
+[source,ruby]
+----
+[
+  Token(:operator, "newpath"),
+  Token(:number, "50"),
+  Token(:number, "50"),
+  Token(:operator, "moveto"),
+  Token(:number, "150"),
+  Token(:number, "50"),
+  Token(:operator, "lineto"),
+  Token(:number, "150"),
+  Token(:number, "75"),
+  Token(:operator, "lineto"),
+  Token(:number, "50"),
+  Token(:number, "75"),
+  Token(:operator, "lineto"),
+  Token(:operator, "closepath"),
+  Token(:number, "0.5"),
+  Token(:operator, "setgray"),
+  Token(:operator, "fill")
+]
+----
+
+=== Stage 2: Execution Trace
+
+[source]
+----
+newpath      → Reset path builder
+50 50        → Push 50, push 50 onto stack
+moveto       → Pop 50, 50; add M 50 50 to path
+150 50       → Push 150, push 50 onto stack
+lineto       → Pop 150, 50; add L 150 50 to path
+150 75       → Push 150, push 75 onto stack
+lineto       → Pop 150, 75; add L 150 75 to path
+50 75        → Push 50, push 75 onto stack
+lineto       → Pop 50, 75; add L 50 75 to path
+closepath    → Add Z to path
+0.5          → Push 0.5 onto stack
+setgray      → Pop 0.5; set fill/stroke to gray(0.5)
+fill         → Flush path with fill mode
+----
+
+=== Stage 3: SVG Output
+
+[source,svg]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 200 100" width="200" height="100">
+<g transform="translate(0 100) scale(1 -1)">
+<path d="M 50 50 L 150 50 L 150 75 L 50 75 Z"
+      fill="#808080" stroke="none" />
+</g>
+</svg>
+----
+
+== Performance Considerations
+
+=== Single-Pass Processing
+
+The pipeline processes input in a single forward pass with no backtracking:
+
+* **Tokenization:** O(n) where n = input length
+* **Interpretation:** O(t) where t = number of tokens
+* **Generation:** O(e) where e = number of SVG elements
+
+**Total Complexity:** O(n + t + e) ≈ O(n)
+
+=== Memory Efficiency
+
+**Token Array:** Stores only token metadata, not full AST.
+
+**Streaming Potential:** The architecture supports streaming processing for large files (not currently implemented).
+
+**SVG Buffer:** Accumulates elements incrementally, avoiding multiple document traversals.
+
+=== Optimization Opportunities
+
+**ClipPath Deduplication:** Reduces SVG size by reusing identical clipPath definitions.
+
+**Number Formatting:** Removes unnecessary decimals (1.0 → 1) and trailing zeros.
+
+**Path Optimization:** Combines consecutive path operations when possible.
+
+== Testing the Pipeline
+
+=== Unit Testing Each Stage
+
+**Stage 1: Tokenization**
+
+[source,ruby]
+----
+tokens = Tokenizer.tokenize("100 50 moveto")
+expect(tokens).to eq([
+  Token(:number, "100"),
+  Token(:number, "50"),
+  Token(:operator, "moveto")
+])
+----
+
+**Stage 2: Interpretation**
+
+[source,ruby]
+----
+interpreter = Interpreter.new
+result = interpreter.interpret(tokens, bbox)
+expect(result[:svg]).to include("M 100 50")
+----
+
+**Stage 3: SVG Generation**
+
+[source,ruby]
+----
+svg = result[:svg]
+expect(svg).to start_with('<?xml version="1.0"')
+expect(svg).to include('<svg xmlns=')
+expect(svg).to include('viewBox="0 0 200 100"')
+----
+
+=== Integration Testing
+
+Test complete pipeline with known inputs:
+
+[source,ruby]
+----
+ps_content = <<~PS
+  %%BoundingBox: 0 0 100 100
+  50 50 moveto
+  75 75 lineto
+  stroke
+PS
+
+svg = Postsvg.convert(ps_content)
+expect(svg).to include('M 50 50 L 75 75')
+expect(svg).to include('stroke=')
+----
+
+== Next Steps
+
+* Explore link:parser-stage.adoc[Parser Stage] implementation details
+* Review link:interpreter-stage.adoc[Interpreter Stage] command execution
+* Study link:generator-stage.adoc[Generator Stage] SVG optimization
+* See link:../api-reference/converter.adoc[Converter API] for usage
+
+== Bibliography
+
+* link:parser-stage.adoc[Parser Stage Documentation]
+* link:interpreter-stage.adoc[Interpreter Stage Documentation]
+* link:generator-stage.adoc[Generator Stage Documentation]
+* link:command-registry.adoc[Command Registry Architecture]
+* link:../api-reference.adoc[API Reference]
+* PostScript Language Reference Manual (Adobe Systems)
+* Scalable Vector Graphics (SVG) 1.1 Specification
